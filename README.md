@@ -19,7 +19,7 @@ To produce an installable package:
 npm run package
 ```
 
-In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.1.vsix`. Installation does not shadow any files automatically.
+In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.2.vsix`. Installation does not shadow any files automatically.
 
 ## Use
 
@@ -58,7 +58,7 @@ If a file is renamed or deleted, the session remains recoverable; Shadow Edit do
 
 Before publication the extension saves a recovery snapshot containing BASE, MINE, THEIRS, and RESULT. It writes a temporary result **outside the repository**, flushes it, rereads the target, and compares its contents and filesystem identity/timestamps. A mismatch aborts. It then atomically renames the temporary file over the target and checks the result. It does not truncate the real file or fall back to a non-atomic copy.
 
-This is optimistic concurrency, **not atomic compare-and-swap**. A noncooperating writer can change or replace the target between the final check and rename, or immediately afterward. An agent holding an old file descriptor can continue writing to the replaced inode. No standalone extension can eliminate those races. Recovery snapshots retain the versions observed by the extension, but cannot retain an unseen intervening write. Atomic replacement requires storage and target to be on the same filesystem; otherwise the merge fails safely (`EXDEV`) and retains private state. File permission bits are preserved; extended attributes, ACLs, and inode identity are not.
+This is optimistic concurrency, **not atomic compare-and-swap**. A noncooperating writer can change or replace the target between the final check and rename, or immediately afterward. An agent holding an old file descriptor can continue writing to the replaced inode. No standalone extension can eliminate those races. Recovery snapshots retain the versions observed by the extension, but cannot retain an unseen intervening write. If VS Code storage is on a different filesystem (`EXDEV`), publishing retries from a temporary owner-only directory outside all detected Git worktrees and open workspace folders. It tries the OS temporary directory, then eligible ancestor directories, and repeats the version/content check on each attempt. Temporary staging is removed afterward; saved sessions and recovery archives stay in VS Code storage. If the repository occupies an entire mount and no suitable directory outside it permits an atomic rename, merging fails safely with an explanation and retains private state. No copy-overwrite fallback or temporary file inside the repository is used. An abrupt host crash during fallback staging may leave a `.shadow-edit-publish-*` directory outside the repository; it can be removed once no merge is running. File permission bits are preserved; extended attributes, ACLs, and inode identity are not.
 
 After merging, changes are ordinary working-directory edits. An agent's next `git add -A` may stage and commit them. Shadow Edit does not coordinate ownership after publication.
 
@@ -87,4 +87,4 @@ npm test
 npm run test:integration
 ```
 
-Core tests exercise merge boundaries and conflicts, newline handling, persistence/recovery, failed writes, cancellation state, raced publication, permissions, and real Git commits. Integration tests launch an isolated VS Code instance and exercise native documents, saves, languages, multiple files, duplicate start, agent commits, undo/redo, merge/continue, conflicts, cancellation, stale resolutions, suspend/resume, merge/stop, unsaved initial buffers, and baseline recovery across a full VS Code restart. By default the runner downloads VS Code; set `VSCODE_EXECUTABLE_PATH` to use an installed executable. Test repositories and profiles are temporary and separate from your settings.
+Core tests exercise merge boundaries and conflicts, newline handling, persistence/recovery, failed writes, cancellation state, raced publication, cross-filesystem fallback and cleanup, permissions, and real Git commits. Integration tests launch an isolated VS Code instance and exercise native documents, saves, languages, multiple files, duplicate start, agent commits, undo/redo, merge/continue, conflicts, cancellation, stale resolutions, suspend/resume, merge/stop, unsaved initial buffers, and baseline recovery across a full VS Code restart. By default the runner downloads VS Code; set `VSCODE_EXECUTABLE_PATH` to use an installed executable. Test repositories and profiles are temporary and separate from your settings.

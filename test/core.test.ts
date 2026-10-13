@@ -109,3 +109,95 @@ test('permissions survive atomic publication; symlinks and hardlinks are rejecte
     await fs.link(f.file, path.join(f.repo, 'hard')); await assert.rejects(readReal(f.file), /regular files/);
   } finally { await f.cleanup(); }
 });
+
+test('EXDEV retries outside the Git worktree and cleans private staging after success', async () => {
+  const f = await fixture();
+  const native = require('node:fs/promises') as typeof fs;
+  const rename = native.rename;
+  const staged: string[] = [];
+  let checks = 0;
+  const previousTmp = process.env.TMPDIR;
+  try {
+    execFileSync('git', ['-C', f.repo, 'init', '-q']);
+    // Even a temp directory configured inside the worktree must be excluded.
+    process.env.TMPDIR = f.repo;
+    const canonicalRepo = await fs.realpath(f.repo);
+    await f.store.save(f.s);
+    native.rename = async (from, to) => {
+      const source = String(from); staged.push(source);
+      if (path.dirname(source) === f.store.root) throw Object.assign(new Error('simulated cross-device rename'), { code: 'EXDEV' });
+      assert.ok(!source.startsWith(canonicalRepo + path.sep));
+      assert.equal((await fs.stat(path.dirname(source))).mode & 0o777, 0o700);
+      await rename(from, to);
+    };
+    await publish(f.file, await readReal(f.file), f.s.mine, f.store.root, async () => { checks++; });
+    assert.equal(checks, 2); assert.equal(staged.length, 2);
+    assert.equal(await fs.readFile(f.file, 'utf8'), f.s.mine);
+    assert.equal((await f.store.load())[0].mine, f.s.mine);
+    for (const file of staged) await assert.rejects(fs.stat(file), { code: 'ENOENT' });
+    await assert.rejects(fs.stat(path.dirname(staged[1])), { code: 'ENOENT' });
+    assert.deepEqual((await fs.readdir(f.repo)).sort(), ['.git', 'a.py']);
+  } finally {
+    native.rename = rename;
+    if (previousTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previousTmp;
+    await f.cleanup();
+  }
+});
+
+test('EXDEV retry rechecks newer external edits and retains the private session', async () => {
+  const f = await fixture();
+  const native = require('node:fs/promises') as typeof fs;
+  const rename = native.rename;
+  let checks = 0;
+  try {
+    await f.store.save(f.s);
+    native.rename = async (from, to) => {
+      if (path.dirname(String(from)) === f.store.root) throw Object.assign(new Error('cross-device'), { code: 'EXDEV' });
+      await rename(from, to);
+    };
+    await assert.rejects(publish(f.file, await readReal(f.file), f.s.mine, f.store.root, async () => {
+      if (++checks === 2) await fs.writeFile(f.file, 'newer agent text\n');
+    }, [f.repo]), /changed during merging/);
+    assert.equal(checks, 2);
+    assert.equal(await fs.readFile(f.file, 'utf8'), 'newer agent text\n');
+    assert.equal((await f.store.load())[0].mine, f.s.mine);
+  } finally { native.rename = rename; await f.cleanup(); }
+});
+
+test('publication errors other than EXDEV fail without attempting a fallback', async () => {
+  const f = await fixture();
+  const native = require('node:fs/promises') as typeof fs;
+  const rename = native.rename;
+  let attempts = 0;
+  try {
+    native.rename = async () => { attempts++; throw Object.assign(new Error('denied'), { code: 'EACCES' }); };
+    await assert.rejects(publish(f.file, await readReal(f.file), f.s.mine, f.store.root), { code: 'EACCES' });
+    assert.equal(attempts, 1); assert.equal(await fs.readFile(f.file, 'utf8'), f.s.base);
+  } finally { native.rename = rename; await f.cleanup(); }
+});
+
+test('real cross-device publication on Linux with /dev/shm', { skip: process.platform !== 'linux' }, async () => {
+  const f = await fixture();
+  let separate: string | undefined;
+  try {
+    separate = await fs.mkdtemp('/dev/shm/shadow-cross-device-');
+    assert.notEqual((await fs.stat(separate)).dev, (await fs.stat(f.file)).dev);
+    await publish(f.file, await readReal(f.file), f.s.mine, separate, undefined, [f.repo]);
+    assert.equal(await fs.readFile(f.file, 'utf8'), f.s.mine);
+    assert.deepEqual(await fs.readdir(separate), []);
+  } finally { if (separate) await fs.rm(separate, { recursive: true, force: true }); await f.cleanup(); }
+});
+
+test('no writable staging location leaves the original and private session intact', async () => {
+  const f = await fixture();
+  const native = require('node:fs/promises') as typeof fs;
+  const rename = native.rename, mkdtemp = native.mkdtemp;
+  try {
+    await f.store.save(f.s);
+    native.rename = async () => { throw Object.assign(new Error('cross-device'), { code: 'EXDEV' }); };
+    native.mkdtemp = async () => { throw Object.assign(new Error('read-only mount'), { code: 'EROFS' }); };
+    await assert.rejects(publish(f.file, await readReal(f.file), f.s.mine, f.store.root, undefined, [f.repo]), /no writable staging directory/);
+    assert.equal(await fs.readFile(f.file, 'utf8'), f.s.base);
+    assert.equal((await f.store.load())[0].mine, f.s.mine);
+  } finally { native.rename = rename; native.mkdtemp = mkdtemp; await f.cleanup(); }
+});

@@ -158,7 +158,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await store.archive(s, 'before-publish');
     await publish(s.originalPath, p.theirs, result, store.root, async () => {
       if (s.mine !== mine || p.result !== result || realIsDirty(s)) throw new Error('An editing buffer changed during publishing. Retry the merge.');
-    });
+    }, (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath));
     if (p.result !== result || s.mine !== mine) throw new Error('Published, but private text changed during publishing. Your session and recovery snapshots are retained. Inspect the real file before retrying.');
     await closeResolution(s);
     if (p.result !== result) throw new Error('Published, but the resolution changed while closing. Draft retained for recovery.');
