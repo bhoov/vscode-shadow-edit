@@ -1,0 +1,266 @@
+import * as vscode from 'vscode';
+import * as path from 'node:path';
+import { randomUUID, createHash } from 'node:crypto';
+import { Store, Session, readReal, publish } from './storage';
+import { merge, hasMarkers } from './merge';
+
+const scheme = 'shadow-edit';
+let activeStore: Store | undefined;
+const errorText = (e: unknown) => e instanceof Error ? e.message : String(e);
+const uriFor = (s: Session, result = false) => vscode.Uri.from({ scheme, authority: s.id, path: `/${result ? 'Resolution/' + (s.pending?.id ?? 'legacy') : 'Shadow'}/${path.basename(s.originalPath)}` });
+
+class ShadowFS implements vscode.FileSystemProvider {
+  readonly changes = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+  onDidChangeFile = this.changes.event;
+  constructor(readonly sessions: Map<string, Session>, readonly store: Store) {}
+  session(uri: vscode.Uri): Session {
+    const s = this.sessions.get(uri.authority);
+    if (!s) throw vscode.FileSystemError.FileNotFound(uri);
+    return s;
+  }
+  isResult(uri: vscode.Uri): boolean { return uri.path.startsWith('/Resolution/'); }
+  content(uri: vscode.Uri): string {
+    const s = this.session(uri);
+    if (this.isResult(uri)) {
+      if (!s.pending || uri.toString() !== uriFor(s, true).toString()) throw vscode.FileSystemError.FileNotFound(uri);
+      return s.pending.result;
+    }
+    return s.mine;
+  }
+  stat(uri: vscode.Uri): vscode.FileStat {
+    const s = this.session(uri);
+    return { type: vscode.FileType.File, ctime: s.createdAt, mtime: s.updatedAt, size: Buffer.byteLength(this.content(uri)) };
+  }
+  readFile(uri: vscode.Uri): Uint8Array { return Buffer.from(this.content(uri)); }
+  async capture(uri: vscode.Uri, content: string): Promise<void> {
+    const s = this.session(uri);
+    if (this.isResult(uri)) {
+      if (!s.pending || uri.toString() !== uriFor(s, true).toString()) throw vscode.FileSystemError.FileNotFound(uri);
+      s.pending.result = content;
+    } else s.mine = content;
+    s.updatedAt = Date.now();
+    await this.store.save(s);
+  }
+  async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> { await this.capture(uri, Buffer.from(content).toString('utf8')); }
+  watch(): vscode.Disposable { return new vscode.Disposable(() => {}); }
+  readDirectory(): [string, vscode.FileType][] { return []; }
+  createDirectory(): void { throw vscode.FileSystemError.NoPermissions('Use Shadow Edit: Start.'); }
+  delete(): void { throw vscode.FileSystemError.NoPermissions('Use Shadow Edit: Discard & Stop.'); }
+  rename(): void { throw vscode.FileSystemError.NoPermissions('Shadow documents cannot be renamed.'); }
+  changed(uri: vscode.Uri): void { this.changes.fire([{ type: vscode.FileChangeType.Changed, uri }]); }
+}
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const location = context.storageUri ?? context.globalStorageUri;
+  if (location.scheme !== 'file') throw new Error('Shadow Edit MVP requires a desktop or remote Node extension host with local storage.');
+  const store = new Store(path.join(location.fsPath, 'sessions'));
+  await store.init();
+  activeStore = store;
+  let loaded: Session[];
+  try { loaded = await store.load(); } catch (e) { await store.close(); activeStore = undefined; throw e; }
+  const sessions = new Map(loaded.map(s => [s.id, s]));
+  const provider = new ShadowFS(sessions, store);
+  const busy = new Set<string>();
+  const snapshots = new Map<string, string>();
+  const watchers = new Map<string, vscode.Disposable>();
+  const external = new Map<string, string>();
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  status.command = 'shadowEdit.actions';
+  const decorationChanged = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
+  context.subscriptions.push(status, provider.changes, decorationChanged,
+    vscode.workspace.registerFileSystemProvider(scheme, provider, { isCaseSensitive: true }),
+    vscode.workspace.registerTextDocumentContentProvider('shadow-review', { provideTextDocumentContent: uri => {
+      const content = snapshots.get(uri.toString());
+      if (content === undefined) throw vscode.FileSystemError.FileNotFound('Review snapshot expired. Run Review Differences again.');
+      return content;
+    } }),
+    vscode.window.registerFileDecorationProvider({ onDidChangeFileDecorations: decorationChanged.event, provideFileDecoration: uri => uri.scheme === scheme ? { badge: 'S', tooltip: 'Private Shadow Edit document', color: new vscode.ThemeColor('charts.purple') } : undefined }));
+
+  const updateStatus = () => {
+    const doc = vscode.window.activeTextEditor?.document;
+    const s = doc?.uri.scheme === scheme ? sessions.get(doc.uri.authority) : undefined;
+    if (!s) { status.hide(); return; }
+    status.text = `$(edit) ${provider.isResult(doc!.uri) ? 'Shadow Resolution' : 'Shadow'}${external.get(s.id) ?? ''}`;
+    status.tooltip = 'Private saves • Review, merge, suspend, or discard'; status.show();
+  };
+  const observe = (s: Session) => {
+    const check = async () => {
+      try { external.set(s.id, (await readReal(s.originalPath)).content === s.base ? '' : ' $(sync) External changes'); }
+      catch { external.set(s.id, ' $(warning) Original unavailable'); }
+      updateStatus();
+    };
+    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(path.dirname(s.originalPath)), '*'));
+    const onEvent = (uri: vscode.Uri) => { if (uri.fsPath === s.originalPath) void check(); };
+    watcher.onDidChange(onEvent); watcher.onDidCreate(onEvent); watcher.onDidDelete(onEvent);
+    watchers.set(s.id, watcher); context.subscriptions.push(watcher); void check();
+  };
+  for (const s of sessions.values()) observe(s);
+  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateStatus), vscode.workspace.onDidChangeTextDocument(e => {
+    if (e.document.uri.scheme !== scheme || !sessions.has(e.document.uri.authority) || !e.contentChanges.length) return;
+    // Queue a complete snapshot for every edit, independently of manual saves.
+    void provider.capture(e.document.uri, e.document.getText()).catch(e => vscode.window.showErrorMessage('Shadow recovery write failed: ' + errorText(e)));
+  }));
+
+  const show = async (s: Session, result = false) => {
+    const doc = await vscode.workspace.openTextDocument(uriFor(s, result));
+    if (doc.languageId !== s.language) await vscode.languages.setTextDocumentLanguage(doc, s.language);
+    return vscode.window.showTextDocument(doc, { preview: false });
+  };
+  const choose = async (arg?: vscode.Uri): Promise<Session | undefined> => {
+    const uri = arg ?? vscode.window.activeTextEditor?.document.uri;
+    if (uri?.scheme === scheme && sessions.has(uri.authority)) return sessions.get(uri.authority);
+    const existing = [...sessions.values()].find(s => s.originalUri === uri?.toString());
+    if (existing) return existing;
+    const item = await vscode.window.showQuickPick([...sessions.values()].map(s => ({ label: path.basename(s.originalPath), description: s.originalPath, s })), { placeHolder: 'Resume or manage a private session' });
+    return item?.s;
+  };
+  const sync = async (s: Session) => {
+    for (const doc of vscode.workspace.textDocuments.filter(d => d.uri.scheme === scheme && d.uri.authority === s.id && !d.isClosed)) {
+      // Tab closure and TextDocument disposal are separate host events.
+      if (provider.isResult(doc.uri) && (!s.pending || doc.uri.toString() !== uriFor(s, true).toString())) continue;
+      await provider.capture(doc.uri, doc.getText());
+      if (doc.isDirty && !await doc.save()) throw new Error('Could not save private edits. Session retained.');
+    }
+    await store.save(s);
+  };
+  const realIsDirty = (s: Session) => vscode.workspace.textDocuments.some(d => d.uri.toString() === s.originalUri && d.isDirty);
+  const snapshotUri = (content: string, label: string, s: Session) => {
+    const uri = vscode.Uri.from({ scheme: 'shadow-review', authority: randomUUID(), path: `/${label}/${path.basename(s.originalPath)}` });
+    snapshots.set(uri.toString(), content); return uri;
+  };
+  const closePrivate = async (s: Session) => {
+    const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t => {
+      const input = t.input;
+      return input instanceof vscode.TabInputText ? input.uri.scheme === scheme && input.uri.authority === s.id : input instanceof vscode.TabInputTextDiff && [input.original, input.modified].some(u => u.scheme === scheme && u.authority === s.id);
+    });
+    return vscode.window.tabGroups.close(tabs);
+  };
+  const stop = async (s: Session, remove: boolean, discard = false) => {
+    await sync(s);
+    if (!await closePrivate(s)) throw new Error('Closing was cancelled. Session retained.');
+    if (remove && (discard || s.mine === s.base)) {
+      await store.archive(s, 'stopped');
+      await store.remove(s); sessions.delete(s.id); watchers.get(s.id)?.dispose();
+    } else if (remove) void vscode.window.showInformationMessage('New private edits arrived while stopping. The session is suspended and can be resumed.');
+    await vscode.window.showTextDocument(vscode.Uri.parse(s.originalUri), { preview: false });
+    updateStatus();
+  };
+  const apply = async (s: Session) => {
+    await sync(s);
+    const p = s.pending;
+    if (!p) throw new Error('Run Review & Merge first.');
+    if (s.mine !== p.mine) throw new Error('Your shadow changed during resolution. Review & Merge again. Resolution retained.');
+    if (hasMarkers(p.result)) throw new Error('Remove all conflict marker lines in the private resolution before applying.');
+    if (realIsDirty(s)) throw new Error('The ordinary file has unsaved edits. Save or discard that ordinary buffer before merging. Private edits are safe.');
+    const mine = p.mine, result = p.result;
+    await store.archive(s, 'before-publish');
+    await publish(s.originalPath, p.theirs, result, store.root, async () => {
+      if (s.mine !== mine || p.result !== result || realIsDirty(s)) throw new Error('An editing buffer changed during publishing. Retry the merge.');
+    });
+    if (p.result !== result || s.mine !== mine) throw new Error('Published, but private text changed during publishing. Your session and recovery snapshots are retained. Inspect the real file before retrying.');
+    await closeResolution(s);
+    if (p.result !== result) throw new Error('Published, but the resolution changed while closing. Draft retained for recovery.');
+    const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uriFor(s).toString() && !d.isClosed);
+    // Rebase typing received while closing the result, then use a versioned
+    // WorkspaceEdit. A rejected edit leaves the original private state intact.
+    const rebased = merge(mine, doc?.getText() ?? s.mine, result);
+    if (rebased.conflicts) throw new Error('Published, but new private typing needs review. Session and recovery snapshots retained.');
+    if (doc && doc.getText() !== rebased.content) {
+      const edit = new vscode.WorkspaceEdit();
+      edit.replace(doc.uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), rebased.content);
+      if (!await vscode.workspace.applyEdit(edit)) throw new Error('Merged on disk, but the private editor could not refresh. Session retained.');
+    }
+    s.base = result; s.mine = doc?.getText() ?? rebased.content;
+    s.pending = undefined;
+    await store.save(s);
+    if (doc) { if (!await doc.save()) throw new Error('Published, but saving the refreshed private document failed. Session retained.'); }
+    else provider.changed(uriFor(s));
+    external.set(s.id, ''); updateStatus();
+    if (p.stop && s.mine === s.base) await stop(s, true);
+    else await show(s);
+    void vscode.window.showInformationMessage('Shadow edits merged into the working directory.');
+  };
+  const closeResolution = async (s: Session) => {
+    const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t => t.input instanceof vscode.TabInputText && t.input.uri.toString() === uriFor(s, true).toString());
+    if (!await vscode.window.tabGroups.close(tabs)) throw new Error('Closing the resolution was cancelled. Draft retained.');
+  };
+  const prepare = async (s: Session, stopAfter: boolean) => {
+    await sync(s);
+    if (realIsDirty(s)) throw new Error('The ordinary file has unsaved edits. Save or discard that ordinary buffer before merging.');
+    const theirs = await readReal(s.originalPath);
+    const mine = s.mine;
+    const computed = merge(s.base, mine, theirs.content);
+    if (s.pending) {
+      const answer = await vscode.window.showWarningMessage('Replace the previous resolution draft? A recovery copy will be kept.', { modal: true }, 'Replace');
+      if (answer !== 'Replace') return;
+      await store.archive(s, 'previous-resolution');
+      await closeResolution(s);
+    }
+    s.pending = { id: randomUUID(), mine, theirs, result: computed.content, stop: stopAfter };
+    await store.save(s);
+    if (computed.conflicts) {
+      await show(s, true);
+      void vscode.window.showInformationMessage('Resolve MINE / BASE / THEIRS markers here, then run Shadow Edit: Apply Resolution. Saves remain private.');
+    } else await apply(s);
+  };
+
+  const register = (id: string, action: (arg?: vscode.Uri) => Promise<unknown>) => context.subscriptions.push(vscode.commands.registerCommand('shadowEdit.' + id, async (arg?: vscode.Uri) => {
+    const key = arg?.toString() ?? vscode.window.activeTextEditor?.document.uri.toString() ?? 'picker';
+    // Commands are globally serialized; typing and recovery writes remain enabled.
+    if (busy.size) { void vscode.window.showInformationMessage('A Shadow Edit operation is already running.'); return; }
+    busy.add(key);
+    try { return await action(arg); } catch (e) { console.error('Shadow Edit:', e); void vscode.window.showErrorMessage('Shadow Edit: ' + errorText(e)); } finally { busy.delete(key); }
+  }));
+  register('start', async arg => {
+    const uri = arg ?? vscode.window.activeTextEditor?.document.uri;
+    if (!uri || uri.scheme !== 'file') throw new Error('Start from a saved, local UTF-8 file.');
+    const existing = [...sessions.values()].find(s => s.originalUri === uri.toString());
+    if (existing) return show(existing);
+    const base = await readReal(uri.fsPath);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const now = Date.now();
+    const s: Session = { id: createHash('sha256').update(uri.toString()).digest('hex'), originalUri: uri.toString(), originalPath: uri.fsPath, language: doc.languageId, base: base.content, mine: doc.getText(), createdAt: now, updatedAt: now };
+    await store.save(s); sessions.set(s.id, s); observe(s);
+    await show(s);
+    if (doc.isDirty) void vscode.window.showWarningMessage('Unsaved edits were copied safely into Shadow. The original dirty tab is still open: close it and choose Don’t Save to prevent ordinary saves.');
+    else {
+      const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t => t.input instanceof vscode.TabInputText && t.input.uri.toString() === uri.toString());
+      await vscode.window.tabGroups.close(tabs);
+    }
+    return s.id;
+  });
+  register('resume', async arg => { const s = await choose(arg); if (s) await show(s); });
+  register('review', async arg => {
+    const s = await choose(arg); if (!s) return;
+    await sync(s);
+    const real = await readReal(s.originalPath);
+    await vscode.commands.executeCommand('vscode.diff', snapshotUri(real.content, 'Disk snapshot', s), uriFor(s), `${path.basename(s.originalPath)}: disk snapshot ↔ Shadow`, { preview: false });
+  });
+  register('reviewBase', async arg => {
+    const s = await choose(arg); if (s) await vscode.commands.executeCommand('vscode.diff', snapshotUri(s.base, 'BASE', s), uriFor(s), 'BASE ↔ Shadow', { preview: false });
+  });
+  register('mergeStop', async arg => { const s = await choose(arg); if (s) await prepare(s, true); });
+  register('mergeContinue', async arg => { const s = await choose(arg); if (s) await prepare(s, false); });
+  register('applyResolution', async arg => { const s = await choose(arg); if (s) await apply(s); });
+  register('resumeResolution', async arg => { const s = await choose(arg); if (s?.pending) await show(s, true); });
+  register('cancelMerge', async arg => { const s = await choose(arg); if (s) { await sync(s); await closeResolution(s); await show(s); } });
+  register('suspend', async arg => { const s = await choose(arg); if (s) await stop(s, false); });
+  register('discard', async arg => {
+    const s = await choose(arg); if (!s) return;
+    await sync(s);
+    if ((s.mine !== s.base || s.pending) && await vscode.window.showWarningMessage('Discard this private session? A recovery snapshot will remain in extension storage.', { modal: true }, 'Discard') !== 'Discard') return;
+    await store.archive(s, 'discarded'); await stop(s, true, true);
+  });
+  register('storage', async () => { await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(store.root), { forceNewWindow: true }); });
+  // Dispatch after the picker closes so the command serialization guard is released.
+  context.subscriptions.push(vscode.commands.registerCommand('shadowEdit.actions', async () => {
+    const choices = [['Review differences', 'review'], ['Review & Merge / Stop', 'mergeStop'], ['Merge & Continue', 'mergeContinue'], ['Apply Resolution', 'applyResolution'], ['Resume Resolution', 'resumeResolution'], ['Cancel Merge (keep draft)', 'cancelMerge'], ['Suspend', 'suspend'], ['Discard & Stop', 'discard']];
+    const choice = await vscode.window.showQuickPick(choices.map(([label, command]) => ({ label, command })));
+    if (choice) await vscode.commands.executeCommand('shadowEdit.' + choice.command);
+  }));
+  updateStatus();
+  if (sessions.size) void vscode.window.showInformationMessage(`${sessions.size} saved Shadow Edit session(s) available.`, 'Resume').then(choice => { if (choice) void vscode.commands.executeCommand('shadowEdit.resume'); });
+  // Exposed only through the extension API for integration tests; no filesystem bypass.
+  return;
+}
+export async function deactivate(): Promise<void> { await activeStore?.close(); }

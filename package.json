@@ -1,0 +1,166 @@
+{
+  "name": "shadow-edit",
+  "version": "0.1.0",
+  "description": "Private per-file editing with three-way merges against the live working directory.",
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "tsc --noEmit && esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=dist/extension.js",
+    "test": "tsc && node --test out/test/core.test.js",
+    "test:integration": "npm run build && tsc && node out/test/run.js",
+    "package": "npm run build && vsce package --no-dependencies"
+  },
+  "keywords": [],
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "node-diff3": "3.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/vscode": "1.95.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  },
+  "displayName": "Shadow Edit",
+  "publisher": "bhoov",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bhoov/vscode-shadow-edit.git"
+  },
+  "activationEvents": [
+    "onFileSystem:shadow-edit",
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "shadowEdit.start",
+        "title": "Start",
+        "category": "Shadow Edit",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "shadowEdit.resume",
+        "title": "Resume",
+        "category": "Shadow Edit"
+      },
+      {
+        "command": "shadowEdit.review",
+        "title": "Review Differences",
+        "category": "Shadow Edit",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "shadowEdit.reviewBase",
+        "title": "Review Baseline",
+        "category": "Shadow Edit"
+      },
+      {
+        "command": "shadowEdit.mergeStop",
+        "title": "Review & Merge (Merge & Stop)",
+        "category": "Shadow Edit",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "shadowEdit.mergeContinue",
+        "title": "Merge & Continue",
+        "category": "Shadow Edit"
+      },
+      {
+        "command": "shadowEdit.applyResolution",
+        "title": "Apply Resolution",
+        "category": "Shadow Edit",
+        "icon": "$(check)"
+      },
+      {
+        "command": "shadowEdit.resumeResolution",
+        "title": "Resume Resolution",
+        "category": "Shadow Edit"
+      },
+      {
+        "command": "shadowEdit.cancelMerge",
+        "title": "Cancel Merge",
+        "category": "Shadow Edit"
+      },
+      {
+        "command": "shadowEdit.suspend",
+        "title": "Suspend",
+        "category": "Shadow Edit"
+      },
+      {
+        "command": "shadowEdit.discard",
+        "title": "Discard & Stop",
+        "category": "Shadow Edit"
+      },
+      {
+        "command": "shadowEdit.actions",
+        "title": "Session Actions",
+        "category": "Shadow Edit",
+        "icon": "$(ellipsis)"
+      },
+      {
+        "command": "shadowEdit.storage",
+        "title": "Open Recovery Storage",
+        "category": "Shadow Edit"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "shadowEdit.start",
+          "when": "resourceScheme == file",
+          "group": "navigation@90"
+        },
+        {
+          "command": "shadowEdit.review",
+          "when": "resourceScheme == shadow-edit",
+          "group": "navigation@90"
+        },
+        {
+          "command": "shadowEdit.mergeStop",
+          "when": "resourceScheme == shadow-edit",
+          "group": "navigation@91"
+        },
+        {
+          "command": "shadowEdit.actions",
+          "when": "resourceScheme == shadow-edit",
+          "group": "navigation@92"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "shadowEdit.start",
+          "when": "resourceScheme == file",
+          "group": "shadow"
+        },
+        {
+          "command": "shadowEdit.actions",
+          "when": "resourceScheme == shadow-edit",
+          "group": "shadow"
+        }
+      ]
+    },
+    "resourceLabelFormatters": [
+      {
+        "scheme": "shadow-edit",
+        "formatting": {
+          "label": "${path}",
+          "separator": "/",
+          "authorityPrefix": "",
+          "workspaceSuffix": "Shadow Edit"
+        }
+      }
+    ]
+  }
+}
