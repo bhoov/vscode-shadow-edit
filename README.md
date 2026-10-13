@@ -19,15 +19,15 @@ To produce an installable package:
 npm run package
 ```
 
-In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.0.vsix`. Installation does not shadow any files automatically.
+In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.1.vsix`. Installation does not shadow any files automatically.
 
 ## Use
 
 1. Open a UTF-8 text file. Run **Shadow Edit: Start**, use the pencil in the editor title, or select Start from the tab context menu.
-2. Edit the new private document. The tab has an **S** decoration, its URI path includes **Shadow**, and the status bar says **Shadow**. Normal typing, undo/redo, find/replace, and Cmd+S/Ctrl+S use the native text editor. Saves go to extension storage.
+2. Edit the new private document. The tab has a purple **S** decoration, its URI path includes **Shadow**, and the purple status-bar indicator says **Shadow**. The purple follows your VS Code theme. Normal typing, undo/redo, find/replace, and Cmd+S/Ctrl+S use the native text editor. Saves go to extension storage.
 3. Agents can edit, commit, or switch branches in the real repository. External changes update the status indicator, never your private document.
 4. Use **Review Differences** for a native diff against a fresh disk snapshot. **Review Baseline** shows your changes since the last successful merge. Review snapshots are fixed; reopen Review to refresh.
-5. Run **Review & Merge (Merge & Stop)** to merge and return to the real file, or **Merge & Continue** to merge and keep editing privately.
+5. Run **Merge & Stop** to merge and return to the real file, or **Merge & Continue** to merge and keep editing privately. Clean merges apply immediately without opening a review or resolution editor. Only conflicts open the private resolution document; reviewing differences beforehand is optional.
 
 The status bar opens all session actions. Multiple files can have separate sessions. Starting twice resumes the existing session. Closing a private tab preserves its session; use **Resume** to reopen it.
 
@@ -39,7 +39,7 @@ The merge compares the start/last-merge baseline, your private text, and current
 
 Edit that document into the complete desired result, remove the marker lines, and run **Apply Resolution**. Saving the resolution remains private. The native text editor and diff views are used; no undocumented Merge Editor API is required. Marker-like lines also block publishing if they were already in the source; remove them or use an ordinary manual workflow for such files.
 
-**Cancel Merge** returns to your shadow and retains the draft. **Resume Resolution** reopens it. A subsequent merge asks before replacing a prior draft and archives it first. If the original or your shadow changes during resolution, applying is blocked; run Review & Merge again against current contents. No unresolved markers are written to the real file.
+**Cancel Merge** returns to your shadow and retains the draft. **Resume Resolution** reopens it. A subsequent merge asks before replacing a prior draft and archives it first. If the original or your shadow changes during resolution, applying is blocked; run Merge & Stop or Merge & Continue again against current contents. No unresolved markers are written to the real file.
 
 ### Stop, suspend, and recover
 

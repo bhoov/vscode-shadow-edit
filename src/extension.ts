@@ -66,6 +66,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const external = new Map<string, string>();
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   status.command = 'shadowEdit.actions';
+  status.name = 'Shadow Edit';
+  status.color = new vscode.ThemeColor('charts.purple');
   const decorationChanged = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
   context.subscriptions.push(status, provider.changes, decorationChanged,
     vscode.workspace.registerFileSystemProvider(scheme, provider, { isCaseSensitive: true }),
@@ -148,8 +150,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const apply = async (s: Session) => {
     await sync(s);
     const p = s.pending;
-    if (!p) throw new Error('Run Review & Merge first.');
-    if (s.mine !== p.mine) throw new Error('Your shadow changed during resolution. Review & Merge again. Resolution retained.');
+    if (!p) throw new Error('Run Merge & Stop or Merge & Continue first.');
+    if (s.mine !== p.mine) throw new Error('Your shadow changed during resolution. Run Merge & Stop or Merge & Continue again. Resolution retained.');
     if (hasMarkers(p.result)) throw new Error('Remove all conflict marker lines in the private resolution before applying.');
     if (realIsDirty(s)) throw new Error('The ordinary file has unsaved edits. Save or discard that ordinary buffer before merging. Private edits are safe.');
     const mine = p.mine, result = p.result;
@@ -254,7 +256,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   register('storage', async () => { await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(store.root), { forceNewWindow: true }); });
   // Dispatch after the picker closes so the command serialization guard is released.
   context.subscriptions.push(vscode.commands.registerCommand('shadowEdit.actions', async () => {
-    const choices = [['Review differences', 'review'], ['Review & Merge / Stop', 'mergeStop'], ['Merge & Continue', 'mergeContinue'], ['Apply Resolution', 'applyResolution'], ['Resume Resolution', 'resumeResolution'], ['Cancel Merge (keep draft)', 'cancelMerge'], ['Suspend', 'suspend'], ['Discard & Stop', 'discard']];
+    const choices = [['Review differences', 'review'], ['Merge & Stop', 'mergeStop'], ['Merge & Continue', 'mergeContinue'], ['Apply Resolution', 'applyResolution'], ['Resume Resolution', 'resumeResolution'], ['Cancel Merge (keep draft)', 'cancelMerge'], ['Suspend', 'suspend'], ['Discard & Stop', 'discard']];
     const choice = await vscode.window.showQuickPick(choices.map(([label, command]) => ({ label, command })));
     if (choice) await vscode.commands.executeCommand('shadowEdit.' + choice.command);
   }));

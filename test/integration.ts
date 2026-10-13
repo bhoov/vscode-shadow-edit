@@ -38,7 +38,11 @@ export async function run(): Promise<void> {
   await command('start', original.uri); assert.equal(vscode.window.activeTextEditor!.document.uri.toString(), shadow.uri.toString());
   await fs.writeFile(file, 'x = 1\ny = 2\n'); git('add', '.'); git('commit', '-qm', 'agent'); const head = git('rev-parse', 'HEAD');
   assert.equal(shadow.getText(), 'x = 3\n');
-  await command('mergeContinue', shadow.uri);
+  const mergeEditors: string[] = [];
+  const opened = vscode.workspace.onDidOpenTextDocument(doc => mergeEditors.push(doc.uri.toString()));
+  try { await command('mergeContinue', shadow.uri); } finally { opened.dispose(); }
+  assert.deepEqual(mergeEditors, [], 'A clean merge must not open a review or resolution editor');
+  assert.equal(vscode.window.activeTextEditor!.document.uri.toString(), shadow.uri.toString());
   assert.equal(await fs.readFile(file, 'utf8'), 'x = 3\ny = 2\n'); assert.equal(shadow.getText(), 'x = 3\ny = 2\n'); assert.equal(git('rev-parse', 'HEAD'), head); assert.match(git('status', '--porcelain'), /M a.py/);
   const b = await vscode.workspace.openTextDocument(other); await replace(b, 'b = 2\n'); await b.save(); assert.equal(await fs.readFile(other, 'utf8'), 'b = 2\n');
   await replace(shadow, 'x = 5\ny = 2\n'); await shadow.save(); await fs.writeFile(file, 'x = 6\ny = 2\n');

@@ -87,7 +87,7 @@ export async function publish(file: string, expected: Snapshot, result: string, 
     try { await handle.writeFile(result, 'utf8'); await handle.chmod(expected.mode & 0o777); await handle.sync(); } finally { await handle.close(); }
     await beforeCheck?.();
     const now = await readReal(file);
-    if (now.version !== expected.version || now.content !== expected.content) throw new Error('The real file changed during merging. Private edits and resolution are preserved. Review & Merge again.');
+    if (now.version !== expected.version || now.content !== expected.content) throw new Error('The real file changed during merging. Private edits and resolution are preserved. Run Merge & Stop or Merge & Continue again.');
     // Atomic replacement, but not a compare-and-swap: a noncooperating writer can
     // still race the final check. EXDEV fails safely; never fall back to truncation.
     await fs.rename(temp, file);

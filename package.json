@@ -1,6 +1,6 @@
 {
   "name": "shadow-edit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Private per-file editing with three-way merges against the live working directory.",
   "main": "./dist/extension.js",
   "scripts": {
@@ -68,7 +68,7 @@
       },
       {
         "command": "shadowEdit.mergeStop",
-        "title": "Review & Merge (Merge & Stop)",
+        "title": "Merge & Stop",
         "category": "Shadow Edit",
         "icon": "$(git-merge)"
       },
