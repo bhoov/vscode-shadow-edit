@@ -19,7 +19,7 @@ To produce an installable package:
 npm run package
 ```
 
-In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.4.vsix`. Installation does not shadow any files automatically.
+In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.5.vsix`. Installation does not shadow any files automatically.
 
 ## Use
 
@@ -32,6 +32,20 @@ In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1
 The status bar opens all session actions. Multiple files can have separate sessions. **Start** always creates a fresh session from the ordinary editor’s current text (including unsaved edits) and captures a new disk baseline. If a saved session already exists, confirm **Start Fresh** to archive the previous draft and replace it, or cancel to leave it untouched. **Resume** explicitly continues the saved private draft with its existing baseline. Starting again while already in that file’s shadow keeps the active session. Fresh sessions use distinct document URIs so VS Code cannot reuse an earlier buffer. Closing a private tab preserves its session; use **Resume** to reopen it.
 
 **Starting with unsaved edits:** these are copied to private storage before opening the shadow. The original dirty tab remains open because the public API cannot silently retarget or discard that buffer. Close the original tab and choose **Don’t Save**. Do not save that original buffer unless you intend to change the real file. Merging is blocked while an ordinary buffer for the target is dirty.
+
+### Keyboard shortcuts
+
+Press **Cmd+K** on macOS or **Ctrl+K** on Windows/Linux, release it, then press **Shift + the letter**. With Remote–SSH, use the shortcuts for your local VS Code client’s operating system.
+
+| Action | macOS | Windows/Linux |
+| --- | --- | --- |
+| Start | Cmd+K, Shift+S | Ctrl+K, Shift+S |
+| Resume | Cmd+K, Shift+R | Ctrl+K, Shift+R |
+| Merge & Stop | Cmd+K, Shift+M | Ctrl+K, Shift+M |
+| Review Differences | Cmd+K, Shift+D | Ctrl+K, Shift+D |
+| Merge & Continue | Cmd+K, Shift+C | Ctrl+K, Shift+C |
+
+Start and Resume are active in ordinary editable file editors, including remote files. Merge and Review shortcuts are active only in private Shadow editors. They do not apply in terminals, read-only views, or resolution documents. Save keeps its usual shortcut and saves privately; Apply Resolution and Discard have no default shortcuts. Customize these bindings in VS Code’s Keyboard Shortcuts editor by searching for “Shadow Edit”.
 
 ### Conflicts
 
