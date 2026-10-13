@@ -9,7 +9,7 @@ async function main() {
     for (const phase of ['initial', 'recovery']) await runTests({
       extensionDevelopmentPath: path.resolve(__dirname, '../..'),
       extensionTestsPath: path.resolve(__dirname, 'integration.js'),
-      extensionTestsEnv: { SHADOW_TEST_PHASE: phase },
+      extensionTestsEnv: { SHADOW_TEST_PHASE: phase, SHADOW_TEST_USER_DATA: path.join(root, 'user') },
       ...(process.env.VSCODE_EXECUTABLE_PATH ? { vscodeExecutablePath: process.env.VSCODE_EXECUTABLE_PATH } : {}),
       launchArgs: [workspace, '--user-data-dir=' + path.join(root, 'user'), '--extensions-dir=' + path.join(root, 'extensions'), '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes'],
     });

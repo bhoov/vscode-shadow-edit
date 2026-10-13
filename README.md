@@ -19,7 +19,7 @@ To produce an installable package:
 npm run package
 ```
 
-In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.2.vsix`. Installation does not shadow any files automatically.
+In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.3.vsix`. Installation does not shadow any files automatically.
 
 ## Use
 
@@ -29,7 +29,7 @@ In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1
 4. Use **Review Differences** for a native diff against a fresh disk snapshot. **Review Baseline** shows your changes since the last successful merge. Review snapshots are fixed; reopen Review to refresh.
 5. Run **Merge & Stop** to merge and return to the real file, or **Merge & Continue** to merge and keep editing privately. Clean merges apply immediately without opening a review or resolution editor. Only conflicts open the private resolution document; reviewing differences beforehand is optional.
 
-The status bar opens all session actions. Multiple files can have separate sessions. Starting twice resumes the existing session. Closing a private tab preserves its session; use **Resume** to reopen it.
+The status bar opens all session actions. Multiple files can have separate sessions. Starting from an ordinary file that already has a saved session asks whether to **Resume Saved Shadow** or **Start Fresh**. Fresh starts use the current editor text (including unsaved edits), capture a new disk baseline, and archive the previous session first. **Start Fresh from Current File** runs that action directly. Starting again while already in that file’s shadow keeps the active session. Fresh sessions use distinct document URIs so VS Code cannot reuse an earlier buffer. Closing a private tab preserves its session; use **Resume** to reopen it.
 
 **Starting with unsaved edits:** these are copied to private storage before opening the shadow. The original dirty tab remains open because the public API cannot silently retarget or discard that buffer. Close the original tab and choose **Don’t Save**. Do not save that original buffer unless you intend to change the real file. Merging is blocked while an ordinary buffer for the target is dirty.
 
@@ -50,7 +50,7 @@ Edit that document into the complete desired result, remove the marker lines, an
 
 Saved state survives restarts and extension-host crashes. Changes are also checkpointed on every document edit; a crash can still lose the last edits whose asynchronous checkpoint has not completed. Use Save to wait for persistence. VS Code's own dirty-editor recovery is an additional safeguard.
 
-Private session JSON files live in VS Code's workspace storage (global storage for an empty window), outside the repository. Each contains the baseline, private contents, original URI, language, timestamps, and any resolution draft with its disk snapshot. Writes are serialized, flushed, and atomically replaced. An active-host lock prevents ordinary simultaneous use of the same storage by two hosts. **Open Recovery Storage** opens the directory. `history/` contains pre-publish snapshots, replaced resolutions, and discarded sessions. These are intentionally retained; delete old archives manually when no longer needed. Storage is private to the OS user, not encrypted or hidden from processes with the same account.
+Private session JSON files live in VS Code's workspace storage (global storage for an empty window), outside the repository. Each contains the baseline, private contents, original URI, language, timestamps, and any resolution draft with its disk snapshot. Writes are serialized, flushed, and atomically replaced. An active-host lock prevents ordinary simultaneous use of the same storage by two hosts. **Open Recovery Storage** opens the directory. `history/` contains pre-publish snapshots, replaced resolutions, restarted sessions, and discarded sessions. These are intentionally retained; delete old archives manually when no longer needed. Storage is private to the OS user, not encrypted or hidden from processes with the same account.
 
 If a file is renamed or deleted, the session remains recoverable; Shadow Edit does not guess its new location or recreate it. Restore the original path, or copy your private text to a file you choose. Workspace moves and storage/profile changes do not automatically migrate sessions. A malformed session stops loading and reports an error; files are retained for manual recovery.
 

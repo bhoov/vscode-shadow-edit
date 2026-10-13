@@ -7,16 +7,20 @@ import { merge, hasMarkers } from './merge';
 const scheme = 'shadow-edit';
 let activeStore: Store | undefined;
 const errorText = (e: unknown) => e instanceof Error ? e.message : String(e);
-const uriFor = (s: Session, result = false) => vscode.Uri.from({ scheme, authority: s.id, path: `/${result ? 'Resolution/' + (s.pending?.id ?? 'legacy') : 'Shadow'}/${path.basename(s.originalPath)}` });
+const uriFor = (s: Session, result = false) => vscode.Uri.from({ scheme, authority: s.id, path: `/${result ? 'Resolution/' + (s.pending?.id ?? 'legacy') : 'Shadow' + (s.generation ? '/' + s.generation : '')}/${path.basename(s.originalPath)}` });
 
 class ShadowFS implements vscode.FileSystemProvider {
   readonly changes = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
   onDidChangeFile = this.changes.event;
   constructor(readonly sessions: Map<string, Session>, readonly store: Store) {}
+  has(uri: vscode.Uri): boolean {
+    const s = this.sessions.get(uri.authority);
+    return uri.scheme === scheme && !!s && (!this.isResult(uri) || !!s.pending) && uri.toString() === uriFor(s, this.isResult(uri)).toString();
+  }
   session(uri: vscode.Uri): Session {
     const s = this.sessions.get(uri.authority);
-    if (!s) throw vscode.FileSystemError.FileNotFound(uri);
-    return s;
+    if (!this.has(uri)) throw vscode.FileSystemError.FileNotFound('This Shadow document belongs to an older session. Use Resume to open the current session.');
+    return s!;
   }
   isResult(uri: vscode.Uri): boolean { return uri.path.startsWith('/Resolution/'); }
   content(uri: vscode.Uri): string {
@@ -80,7 +84,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const updateStatus = () => {
     const doc = vscode.window.activeTextEditor?.document;
-    const s = doc?.uri.scheme === scheme ? sessions.get(doc.uri.authority) : undefined;
+    const s = doc && provider.has(doc.uri) ? sessions.get(doc.uri.authority) : undefined;
     if (!s) { status.hide(); return; }
     status.text = `$(edit) ${provider.isResult(doc!.uri) ? 'Shadow Resolution' : 'Shadow'}${external.get(s.id) ?? ''}`;
     status.tooltip = 'Private saves • Review, merge, suspend, or discard'; status.show();
@@ -98,7 +102,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   for (const s of sessions.values()) observe(s);
   context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateStatus), vscode.workspace.onDidChangeTextDocument(e => {
-    if (e.document.uri.scheme !== scheme || !sessions.has(e.document.uri.authority) || !e.contentChanges.length) return;
+    if (!provider.has(e.document.uri) || !e.contentChanges.length) return;
     // Queue a complete snapshot for every edit, independently of manual saves.
     void provider.capture(e.document.uri, e.document.getText()).catch(e => vscode.window.showErrorMessage('Shadow recovery write failed: ' + errorText(e)));
   }));
@@ -110,14 +114,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const choose = async (arg?: vscode.Uri): Promise<Session | undefined> => {
     const uri = arg ?? vscode.window.activeTextEditor?.document.uri;
-    if (uri?.scheme === scheme && sessions.has(uri.authority)) return sessions.get(uri.authority);
+    if (uri?.scheme === scheme) return provider.session(uri);
     const existing = [...sessions.values()].find(s => s.originalUri === uri?.toString());
     if (existing) return existing;
     const item = await vscode.window.showQuickPick([...sessions.values()].map(s => ({ label: path.basename(s.originalPath), description: s.originalPath, s })), { placeHolder: 'Resume or manage a private session' });
     return item?.s;
   };
   const sync = async (s: Session) => {
-    for (const doc of vscode.workspace.textDocuments.filter(d => d.uri.scheme === scheme && d.uri.authority === s.id && !d.isClosed)) {
+    for (const doc of vscode.workspace.textDocuments.filter(d => provider.has(d.uri) && d.uri.authority === s.id && !d.isClosed)) {
       // Tab closure and TextDocument disposal are separate host events.
       if (provider.isResult(doc.uri) && (!s.pending || doc.uri.toString() !== uriFor(s, true).toString())) continue;
       await provider.capture(doc.uri, doc.getText());
@@ -213,16 +217,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     busy.add(key);
     try { return await action(arg); } catch (e) { console.error('Shadow Edit:', e); void vscode.window.showErrorMessage('Shadow Edit: ' + errorText(e)); } finally { busy.delete(key); }
   }));
-  register('start', async arg => {
+  const start = async (arg?: vscode.Uri, fresh = false) => {
     const uri = arg ?? vscode.window.activeTextEditor?.document.uri;
+    if (uri?.scheme === scheme && !fresh) return show(provider.session(uri));
     if (!uri || uri.scheme !== 'file') throw new Error('Start from a saved, local UTF-8 file.');
     const existing = [...sessions.values()].find(s => s.originalUri === uri.toString());
-    if (existing) return show(existing);
+    if (existing) {
+      if (!fresh) {
+        const active = vscode.window.activeTextEditor?.document.uri;
+        if (active && provider.has(active) && active.authority === existing.id) return show(existing);
+        const choice = await vscode.window.showInformationMessage(
+          `A saved Shadow session already exists for ${path.basename(uri.fsPath)}.`,
+          { modal: true, detail: 'Resume Saved Shadow keeps its private draft and original baseline. Start Fresh uses the current editor contents and archives the previous draft for recovery.' },
+          'Resume Saved Shadow', 'Start Fresh');
+        if (choice === 'Resume Saved Shadow') return show(existing);
+        if (choice !== 'Start Fresh') return;
+      }
+      await sync(existing);
+      if (!await closePrivate(existing)) throw new Error('Closing was cancelled. Existing session retained.');
+      await sync(existing);
+      await store.archive(existing, 'restarted');
+    }
     const base = await readReal(uri.fsPath);
     const doc = await vscode.workspace.openTextDocument(uri);
     const now = Date.now();
-    const s: Session = { id: createHash('sha256').update(uri.toString()).digest('hex'), originalUri: uri.toString(), originalPath: uri.fsPath, language: doc.languageId, base: base.content, mine: doc.getText(), createdAt: now, updatedAt: now };
-    await store.save(s); sessions.set(s.id, s); observe(s);
+    const s: Session = { id: existing?.id ?? createHash('sha256').update(uri.toString()).digest('hex'), generation: randomUUID(), originalUri: uri.toString(), originalPath: uri.fsPath, language: doc.languageId, base: base.content, mine: doc.getText(), createdAt: now, updatedAt: now };
+    // Invalidate old document URIs before persisting so delayed events from a
+    // closed editor cannot overwrite the new session. Keep legacy URIs resumable.
+    sessions.set(s.id, s);
+    try { await store.save(s); }
+    catch (error) { if (existing) sessions.set(existing.id, existing); else sessions.delete(s.id); throw error; }
+    watchers.get(s.id)?.dispose(); observe(s);
     await show(s);
     if (doc.isDirty) void vscode.window.showWarningMessage('Unsaved edits were copied safely into Shadow. The original dirty tab is still open: close it and choose Don’t Save to prevent ordinary saves.');
     else {
@@ -230,7 +255,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.window.tabGroups.close(tabs);
     }
     return s.id;
-  });
+  };
+  register('start', arg => start(arg));
+  register('startFresh', arg => start(arg, true));
   register('resume', async arg => { const s = await choose(arg); if (s) await show(s); });
   register('review', async arg => {
     const s = await choose(arg); if (!s) return;

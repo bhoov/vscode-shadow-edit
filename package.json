@@ -1,6 +1,6 @@
 {
   "name": "shadow-edit",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Private per-file editing with three-way merges against the live working directory.",
   "main": "./dist/extension.js",
   "scripts": {
@@ -49,6 +49,11 @@
         "title": "Start",
         "category": "Shadow Edit",
         "icon": "$(edit)"
+      },
+      {
+        "command": "shadowEdit.startFresh",
+        "title": "Start Fresh from Current File",
+        "category": "Shadow Edit"
       },
       {
         "command": "shadowEdit.resume",
@@ -141,6 +146,11 @@
       "editor/title/context": [
         {
           "command": "shadowEdit.start",
+          "when": "resourceScheme == file",
+          "group": "shadow"
+        },
+        {
+          "command": "shadowEdit.startFresh",
           "when": "resourceScheme == file",
           "group": "shadow"
         },

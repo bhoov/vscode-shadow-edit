@@ -7,6 +7,7 @@ export interface Snapshot { content: string; version: string; mode: number }
 export interface Pending { id?: string; mine: string; theirs: Snapshot; result: string; stop: boolean }
 export interface Session {
   id: string; originalUri: string; originalPath: string; language: string;
+  generation?: string;
   base: string; mine: string; createdAt: number; updatedAt: number; pending?: Pending;
 }
 export async function atomicJson(file: string, value: unknown): Promise<void> {

@@ -8,6 +8,20 @@ async function replace(doc: vscode.TextDocument, text: string) {
   const edit = new vscode.WorkspaceEdit(); edit.replace(doc.uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), text);
   assert.ok(await vscode.workspace.applyEdit(edit));
 }
+async function chooseExisting(choice: string | undefined, action: () => Thenable<unknown>) {
+  const original = vscode.window.showInformationMessage;
+  let prompted = false;
+  vscode.window.showInformationMessage = ((message: string, ...args: unknown[]) => {
+    if (message.startsWith('A saved Shadow session already exists')) {
+      prompted = true;
+      assert.ok(args.includes('Resume Saved Shadow')); assert.ok(args.includes('Start Fresh'));
+      return Promise.resolve(choice);
+    }
+    return (original as (...args: unknown[]) => unknown)(message, ...args);
+  }) as typeof original;
+  try { await action(); assert.ok(prompted, 'Starting from an ordinary file with saved state must offer an explicit choice'); }
+  finally { vscode.window.showInformationMessage = original; }
+}
 export async function run(): Promise<void> {
   const extension = vscode.extensions.getExtension('bhoov.shadow-edit')!; await extension.activate();
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
@@ -66,6 +80,42 @@ export async function run(): Promise<void> {
     await command('start', doc.uri); const privateDoc = vscode.window.activeTextEditor!.document;
     assert.equal(privateDoc.languageId, language); assert.equal(privateDoc.getText(), 'unsaved\n'); await privateDoc.save(); assert.equal(await fs.readFile(f, 'utf8'), 'base\n');
   }
+  // Starting from an ordinary editor must not silently resurrect an old draft.
+  const restartFile = path.join(root, 'restart.py'); await fs.writeFile(restartFile, 'base\n');
+  const ordinary = await vscode.workspace.openTextDocument(restartFile); await vscode.window.showTextDocument(ordinary); await command('start');
+  const oldShadow = vscode.window.activeTextEditor!.document; await replace(oldShadow, 'old private draft\n'); await oldShadow.save();
+  await vscode.window.showTextDocument(ordinary); await replace(ordinary, 'new disk baseline\n'); await ordinary.save();
+  await replace(ordinary, 'current unsaved draft\n');
+  await chooseExisting(undefined, () => command('start', ordinary.uri));
+  assert.equal(vscode.window.activeTextEditor!.document.uri.toString(), ordinary.uri.toString());
+  assert.equal(oldShadow.getText(), 'old private draft\n');
+  await chooseExisting('Resume Saved Shadow', () => command('start', ordinary.uri));
+  assert.equal(vscode.window.activeTextEditor!.document.getText(), 'old private draft\n');
+  await vscode.window.showTextDocument(ordinary);
+  await chooseExisting('Start Fresh', () => command('start', ordinary.uri));
+  const fresh = vscode.window.activeTextEditor!.document;
+  assert.notEqual(fresh.uri.toString(), oldShadow.uri.toString());
+  assert.equal(fresh.getText(), 'current unsaved draft\n');
+  assert.equal(await fs.readFile(restartFile, 'utf8'), 'new disk baseline\n');
+  const storageRoot = path.join(process.env.SHADOW_TEST_USER_DATA!, 'User', 'workspaceStorage');
+  const archives = (await fs.readdir(storageRoot, { recursive: true })).filter(name => name.endsWith('-restarted.json'));
+  const archived = await Promise.all(archives.map(async name => JSON.parse(await fs.readFile(path.join(storageRoot, name), 'utf8'))));
+  assert.ok(archived.some(s => s.originalUri === ordinary.uri.toString() && s.mine === 'old private draft\n' && s.base === 'base\n'), 'Fresh start must archive the complete previous draft and baseline');
+  const currentPath = (await fs.readdir(storageRoot, { recursive: true })).find(name => name.endsWith(path.join('sessions', fresh.uri.authority + '.json')))!;
+  const currentState = JSON.parse(await fs.readFile(path.join(storageRoot, currentPath), 'utf8'));
+  assert.equal(currentState.base, 'new disk baseline\n'); assert.equal(currentState.mine, 'current unsaved draft\n');
+  await assert.rejects(async () => { await vscode.workspace.fs.writeFile(oldShadow.uri, Buffer.from('late old save\n')); });
+  assert.equal(fresh.getText(), 'current unsaved draft\n');
+  // Direct fresh start also replaces the session without reviving a cached URI.
+  await vscode.window.showTextDocument(ordinary); await replace(ordinary, 'latest visible draft\n'); await ordinary.save();
+  await command('startFresh', ordinary.uri);
+  const newest = vscode.window.activeTextEditor!.document;
+  assert.notEqual(newest.uri.toString(), fresh.uri.toString()); assert.equal(newest.getText(), 'latest visible draft\n');
+  await command('mergeStop', newest.uri);
+  await command('start', ordinary.uri);
+  const afterStop = vscode.window.activeTextEditor!.document;
+  assert.notEqual(afterStop.uri.toString(), newest.uri.toString()); assert.equal(afterStop.getText(), 'latest visible draft\n');
+  console.log('PASS: Existing-session cancel/resume/fresh choices, unsaved current draft, stale URI rejection, and fresh start after stop.');
   console.log('PASS: Extension Host isolation, native save, languages, duplicate start, agent commit, merge/continue, conflict, cancel, stale resolution, suspend/resume, merge/stop, dirty-start, multiple files.');
   const recovery = path.join(root, 'recovery.py'); await fs.writeFile(recovery, 'first\nmiddle\nlast\n');
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(recovery)); await command('start');
