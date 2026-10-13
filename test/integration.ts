@@ -14,7 +14,7 @@ async function chooseExisting(choice: string | undefined, action: () => Thenable
   vscode.window.showInformationMessage = ((message: string, ...args: unknown[]) => {
     if (message.startsWith('A saved Shadow session already exists')) {
       prompted = true;
-      assert.ok(args.includes('Resume Saved Shadow')); assert.ok(args.includes('Start Fresh'));
+      assert.ok(!args.includes('Resume Saved Shadow')); assert.ok(args.includes('Start Fresh'));
       return Promise.resolve(choice);
     }
     return (original as (...args: unknown[]) => unknown)(message, ...args);
@@ -49,7 +49,7 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('redo'); assert.equal(shadow.getText(), 'x = 3\n');
   assert.ok(await shadow.save());
   assert.equal(await fs.readFile(file, 'utf8'), 'x = 1\n'); assert.equal(git('status', '--porcelain'), '');
-  await command('start', original.uri); assert.equal(vscode.window.activeTextEditor!.document.uri.toString(), shadow.uri.toString());
+  await command('start'); assert.equal(vscode.window.activeTextEditor!.document.uri.toString(), shadow.uri.toString());
   await fs.writeFile(file, 'x = 1\ny = 2\n'); git('add', '.'); git('commit', '-qm', 'agent'); const head = git('rev-parse', 'HEAD');
   assert.equal(shadow.getText(), 'x = 3\n');
   const mergeEditors: string[] = [];
@@ -89,7 +89,7 @@ export async function run(): Promise<void> {
   await chooseExisting(undefined, () => command('start', ordinary.uri));
   assert.equal(vscode.window.activeTextEditor!.document.uri.toString(), ordinary.uri.toString());
   assert.equal(oldShadow.getText(), 'old private draft\n');
-  await chooseExisting('Resume Saved Shadow', () => command('start', ordinary.uri));
+  await command('resume', ordinary.uri);
   assert.equal(vscode.window.activeTextEditor!.document.getText(), 'old private draft\n');
   await vscode.window.showTextDocument(ordinary);
   await chooseExisting('Start Fresh', () => command('start', ordinary.uri));
@@ -106,9 +106,9 @@ export async function run(): Promise<void> {
   assert.equal(currentState.base, 'new disk baseline\n'); assert.equal(currentState.mine, 'current unsaved draft\n');
   await assert.rejects(async () => { await vscode.workspace.fs.writeFile(oldShadow.uri, Buffer.from('late old save\n')); });
   assert.equal(fresh.getText(), 'current unsaved draft\n');
-  // Direct fresh start also replaces the session without reviving a cached URI.
+  // Start always starts fresh from an ordinary file, with confirmation for old state.
   await vscode.window.showTextDocument(ordinary); await replace(ordinary, 'latest visible draft\n'); await ordinary.save();
-  await command('startFresh', ordinary.uri);
+  await chooseExisting('Start Fresh', () => command('start', ordinary.uri));
   const newest = vscode.window.activeTextEditor!.document;
   assert.notEqual(newest.uri.toString(), fresh.uri.toString()); assert.equal(newest.getText(), 'latest visible draft\n');
   await command('mergeStop', newest.uri);

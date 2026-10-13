@@ -217,22 +217,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     busy.add(key);
     try { return await action(arg); } catch (e) { console.error('Shadow Edit:', e); void vscode.window.showErrorMessage('Shadow Edit: ' + errorText(e)); } finally { busy.delete(key); }
   }));
-  const start = async (arg?: vscode.Uri, fresh = false) => {
+  const start = async (arg?: vscode.Uri) => {
     const uri = arg ?? vscode.window.activeTextEditor?.document.uri;
-    if (uri?.scheme === scheme && !fresh) return show(provider.session(uri));
+    if (uri?.scheme === scheme) return show(provider.session(uri));
     if (!uri || uri.scheme !== 'file') throw new Error('Start from a saved, local UTF-8 file.');
     const existing = [...sessions.values()].find(s => s.originalUri === uri.toString());
     if (existing) {
-      if (!fresh) {
-        const active = vscode.window.activeTextEditor?.document.uri;
-        if (active && provider.has(active) && active.authority === existing.id) return show(existing);
-        const choice = await vscode.window.showInformationMessage(
-          `A saved Shadow session already exists for ${path.basename(uri.fsPath)}.`,
-          { modal: true, detail: 'Resume Saved Shadow keeps its private draft and original baseline. Start Fresh uses the current editor contents and archives the previous draft for recovery.' },
-          'Resume Saved Shadow', 'Start Fresh');
-        if (choice === 'Resume Saved Shadow') return show(existing);
-        if (choice !== 'Start Fresh') return;
-      }
+      const choice = await vscode.window.showInformationMessage(
+        `A saved Shadow session already exists for ${path.basename(uri.fsPath)}.`,
+        { modal: true, detail: 'Start Fresh uses the current editor contents and archives the previous private draft for recovery. To continue that draft instead, cancel and use Shadow Edit: Resume.' },
+        'Start Fresh');
+      if (choice !== 'Start Fresh') return;
       await sync(existing);
       if (!await closePrivate(existing)) throw new Error('Closing was cancelled. Existing session retained.');
       await sync(existing);
@@ -257,7 +252,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return s.id;
   };
   register('start', arg => start(arg));
-  register('startFresh', arg => start(arg, true));
   register('resume', async arg => { const s = await choose(arg); if (s) await show(s); });
   register('review', async arg => {
     const s = await choose(arg); if (!s) return;
