@@ -117,6 +117,22 @@ export async function run(): Promise<void> {
   assert.notEqual(afterStop.uri.toString(), newest.uri.toString()); assert.equal(afterStop.getText(), 'latest visible draft\n');
   console.log('PASS: Existing-session cancel/resume/fresh choices, unsaved current draft, stale URI rejection, and fresh start after stop.');
   console.log('PASS: Extension Host isolation, native save, languages, duplicate start, agent commit, merge/continue, conflict, cancel, stale resolution, suspend/resume, merge/stop, dirty-start, multiple files.');
+  // Merge & Stop keeps a split layout: the real file replaces the Shadow tab in its own group.
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  const left = path.join(root, 'left.py'); const right = path.join(root, 'right.py');
+  await fs.writeFile(left, 'left\n'); await fs.writeFile(right, 'right\n');
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(left), { viewColumn: vscode.ViewColumn.One });
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(right), { viewColumn: vscode.ViewColumn.Two });
+  await command('start');
+  const splitShadow = vscode.window.activeTextEditor!.document;
+  assert.equal(splitShadow.uri.scheme, 'shadow-edit'); assert.equal(vscode.window.tabGroups.all.length, 2);
+  await replace(splitShadow, 'RIGHT\n'); await splitShadow.save();
+  await command('mergeStop', splitShadow.uri);
+  assert.equal(await fs.readFile(right, 'utf8'), 'RIGHT\n');
+  const groupFiles = vscode.window.tabGroups.all.map(g => g.tabs.map(t => (t.input as vscode.TabInputText).uri.fsPath));
+  assert.deepEqual(groupFiles, [[left], [right]]);
+  assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, right); assert.equal(vscode.window.activeTextEditor?.viewColumn, vscode.ViewColumn.Two);
+  console.log('PASS: Merge & Stop preserves split editor groups.');
   const recovery = path.join(root, 'recovery.py'); await fs.writeFile(recovery, 'first\nmiddle\nlast\n');
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(recovery)); await command('start');
   const privateDoc = vscode.window.activeTextEditor!.document; await replace(privateDoc, 'FIRST\nmiddle\nlast\n'); await privateDoc.save();

@@ -156,21 +156,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const uri = vscode.Uri.from({ scheme: 'shadow-review', authority: randomUUID(), path: `/${label}/${path.basename(s.originalPath)}` });
     snapshots.set(uri.toString(), content); return uri;
   };
-  const closePrivate = async (s: Session) => {
-    const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t => {
-      const input = t.input;
-      return input instanceof vscode.TabInputText ? input.uri.scheme === scheme && input.uri.authority === s.id : input instanceof vscode.TabInputTextDiff && [input.original, input.modified].some(u => u.scheme === scheme && u.authority === s.id);
-    });
-    return vscode.window.tabGroups.close(tabs);
+  const isPrivate = (s: Session) => (t: vscode.Tab) => {
+    const input = t.input;
+    return input instanceof vscode.TabInputText ? input.uri.scheme === scheme && input.uri.authority === s.id : input instanceof vscode.TabInputTextDiff && [input.original, input.modified].some(u => u.scheme === scheme && u.authority === s.id);
   };
+  const isUri = (uri: vscode.Uri) => (t: vscode.Tab) => t.input instanceof vscode.TabInputText && t.input.uri.toString() === uri.toString();
+  // Closing the last tab of a group removes the group and the split layout.
+  // Open `doc` in each group where a matching tab is visible or is the only
+  // content, then close the matches. Returns the number of groups that got `doc`.
+  const replaceTabs = async (match: (t: vscode.Tab) => boolean, doc: vscode.TextDocument) => {
+    const active = vscode.window.tabGroups.activeTabGroup;
+    const groups = vscode.window.tabGroups.all
+      .filter(g => g.tabs.some(match) && ((g.activeTab && match(g.activeTab)) || g.tabs.every(match)))
+      .sort((a, b) => Number(a === active) - Number(b === active));
+    for (const g of groups) await vscode.window.showTextDocument(doc, { viewColumn: g.viewColumn, preview: false, preserveFocus: g !== active });
+    if (!await vscode.window.tabGroups.close(vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(match))) return undefined;
+    return groups.length;
+  };
+  const closePrivate = async (s: Session) => vscode.window.tabGroups.close(vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(isPrivate(s)));
   const stop = async (s: Session, remove: boolean, discard = false) => {
     await sync(s);
-    if (!await closePrivate(s)) throw new Error('Closing was cancelled. Session retained.');
+    const original = await vscode.workspace.openTextDocument(vscode.Uri.parse(s.originalUri));
+    const replaced = await replaceTabs(isPrivate(s), original);
+    if (replaced === undefined) throw new Error('Closing was cancelled. Session retained.');
     if (remove && (discard || s.mine === s.base)) {
       await store.archive(s, 'stopped');
       await store.remove(s); sessions.delete(s.id); watchers.get(s.id)?.dispose();
     } else if (remove) void vscode.window.showInformationMessage('New private edits arrived while stopping. The session is suspended and can be resumed.');
-    await vscode.window.showTextDocument(vscode.Uri.parse(s.originalUri), { preview: false });
+    if (!replaced) await vscode.window.showTextDocument(original, { preview: false });
     updateStatus();
   };
   const apply = async (s: Session) => {
@@ -209,8 +222,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.window.showInformationMessage('Shadow edits merged into the working directory.');
   };
   const closeResolution = async (s: Session) => {
-    const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t => t.input instanceof vscode.TabInputText && t.input.uri.toString() === uriFor(s, true).toString());
-    if (!await vscode.window.tabGroups.close(tabs)) throw new Error('Closing the resolution was cancelled. Draft retained.');
+    const draft = await vscode.workspace.openTextDocument(uriFor(s));
+    if (await replaceTabs(isUri(uriFor(s, true)), draft) === undefined) throw new Error('Closing the resolution was cancelled. Draft retained.');
   };
   const prepare = async (s: Session, stopAfter: boolean) => {
     await sync(s);
@@ -265,12 +278,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try { await store.save(s); }
     catch (error) { if (existing) sessions.set(existing.id, existing); else sessions.delete(s.id); throw error; }
     watchers.get(s.id)?.dispose(); observe(s);
-    await show(s);
+    const editor = await show(s);
     if (doc.isDirty) void vscode.window.showWarningMessage('Unsaved edits were copied safely into Shadow. The original dirty tab is still open: close it and choose Don’t Save to prevent ordinary saves.');
-    else {
-      const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t => t.input instanceof vscode.TabInputText && t.input.uri.toString() === uri.toString());
-      await vscode.window.tabGroups.close(tabs);
-    }
+    else await replaceTabs(isUri(uri), editor.document);
     return s.id;
   };
   register('start', arg => start(arg));
