@@ -21,6 +21,10 @@ npm run package
 
 In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.11.vsix`. Installation does not shadow any files automatically.
 
+### Marketplace
+
+Manage the published extension (publisher `bhoov`) at https://marketplace.visualstudio.com/manage/publishers/bhoov. To upload a new version there, use **Update** on the extension and select the VSIX from `npm run package`.
+
 ## Use
 
 1. Open a UTF-8 text file. Run **Shadow Edit: Start**, use the pencil in the editor title, or select Start from the tab context menu.
