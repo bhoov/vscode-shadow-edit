@@ -68,25 +68,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const snapshots = new Map<string, string>();
   const watchers = new Map<string, vscode.Disposable>();
   const external = new Map<string, string>();
-  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  const status = vscode.window.createStatusBarItem('shadowEdit.session', vscode.StatusBarAlignment.Left, 100);
   status.command = 'shadowEdit.actions';
   status.name = 'Shadow Edit';
-  status.color = new vscode.ThemeColor('charts.purple');
+  status.color = new vscode.ThemeColor('shadowEdit.indicator');
+  const tint = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true,
+    backgroundColor: new vscode.ThemeColor('shadowEdit.background'),
+  });
+  const updateTint = () => {
+    for (const editor of vscode.window.visibleTextEditors) {
+      const doc = editor.document;
+      // Leave native diff highlighting and conflict resolution colors unobscured.
+      const inDiff = vscode.window.tabGroups.all.some(group => group.viewColumn === editor.viewColumn && group.activeTab?.input instanceof vscode.TabInputTextDiff);
+      const enabled = vscode.workspace.getConfiguration('shadowEdit', doc.uri).get<boolean>('editorTint', true);
+      const privateDraft = provider.has(doc.uri) && !provider.isResult(doc.uri);
+      editor.setDecorations(tint, enabled && privateDraft && !inDiff
+        ? [new vscode.Range(0, 0, doc.lineCount - 1, doc.lineAt(doc.lineCount - 1).text.length)] : []);
+    }
+  };
   const decorationChanged = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
-  context.subscriptions.push(status, provider.changes, decorationChanged,
+  context.subscriptions.push(status, tint, provider.changes, decorationChanged,
     vscode.workspace.registerFileSystemProvider(scheme, provider, { isCaseSensitive: true }),
     vscode.workspace.registerTextDocumentContentProvider('shadow-review', { provideTextDocumentContent: uri => {
       const content = snapshots.get(uri.toString());
       if (content === undefined) throw vscode.FileSystemError.FileNotFound('Review snapshot expired. Run Review Differences again.');
       return content;
     } }),
-    vscode.window.registerFileDecorationProvider({ onDidChangeFileDecorations: decorationChanged.event, provideFileDecoration: uri => uri.scheme === scheme ? { badge: 'S', tooltip: 'Private Shadow Edit document', color: new vscode.ThemeColor('charts.purple') } : undefined }));
+    vscode.window.registerFileDecorationProvider({ onDidChangeFileDecorations: decorationChanged.event, provideFileDecoration: uri => uri.scheme === scheme ? { badge: 'S', tooltip: 'Private Shadow Edit document', color: new vscode.ThemeColor('shadowEdit.indicator') } : undefined }));
 
   const updateStatus = () => {
     const doc = vscode.window.activeTextEditor?.document;
     const s = doc && provider.has(doc.uri) ? sessions.get(doc.uri.authority) : undefined;
     if (!s) { status.hide(); return; }
-    status.text = `$(edit) ${provider.isResult(doc!.uri) ? 'Shadow Resolution' : 'Shadow'}${external.get(s.id) ?? ''}`;
+    status.text = `$(edit) ${provider.isResult(doc!.uri) ? 'Shadow Resolution · Private' : 'Shadow · Private edits'}${external.get(s.id) ?? ''}`;
     status.tooltip = 'Private saves • Review, merge, suspend, or discard'; status.show();
   };
   const observe = (s: Session) => {
@@ -101,8 +116,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     watchers.set(s.id, watcher); context.subscriptions.push(watcher); void check();
   };
   for (const s of sessions.values()) observe(s);
-  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateStatus), vscode.workspace.onDidChangeTextDocument(e => {
+  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => { updateStatus(); updateTint(); }),
+    vscode.window.onDidChangeVisibleTextEditors(updateTint),
+    vscode.window.tabGroups.onDidChangeTabs(updateTint),
+    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('shadowEdit.editorTint')) updateTint(); }),
+    vscode.workspace.onDidChangeTextDocument(e => {
     if (!provider.has(e.document.uri) || !e.contentChanges.length) return;
+    updateTint();
     // Queue a complete snapshot for every edit, independently of manual saves.
     void provider.capture(e.document.uri, e.document.getText()).catch(e => vscode.window.showErrorMessage('Shadow recovery write failed: ' + errorText(e)));
   }));
@@ -110,7 +130,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const show = async (s: Session, result = false) => {
     const doc = await vscode.workspace.openTextDocument(uriFor(s, result));
     if (doc.languageId !== s.language) await vscode.languages.setTextDocumentLanguage(doc, s.language);
-    return vscode.window.showTextDocument(doc, { preview: false });
+    const editor = await vscode.window.showTextDocument(doc, { preview: false });
+    updateStatus(); updateTint(); decorationChanged.fire(doc.uri);
+    return editor;
   };
   const choose = async (arg?: vscode.Uri): Promise<Session | undefined> => {
     const uri = arg ?? vscode.window.activeTextEditor?.document.uri;
@@ -282,6 +304,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (choice) await vscode.commands.executeCommand('shadowEdit.' + choice.command);
   }));
   updateStatus();
+  updateTint();
   if (sessions.size) void vscode.window.showInformationMessage(`${sessions.size} saved Shadow Edit session(s) available.`, 'Resume').then(choice => { if (choice) void vscode.commands.executeCommand('shadowEdit.resume'); });
   // Exposed only through the extension API for integration tests; no filesystem bypass.
   return;

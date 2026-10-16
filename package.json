@@ -1,6 +1,6 @@
 {
   "name": "shadow-edit",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "description": "Private per-file editing with three-way merges against the live working directory.",
   "main": "./dist/extension.js",
   "scripts": {
@@ -24,6 +24,7 @@
     "typescript": "^5.9.3"
   },
   "displayName": "Shadow Edit",
+  "icon": "assets/icon.png",
   "publisher": "bhoov",
   "engines": {
     "vscode": "^1.95.0"
@@ -192,6 +193,38 @@
         "key": "ctrl+k shift+c",
         "mac": "cmd+k shift+c",
         "when": "editorTextFocus && !editorReadonly && resourceScheme == shadow-edit && resourcePath =~ /^\\/Shadow\\//"
+      }
+    ],
+    "configuration": {
+      "title": "Shadow Edit",
+      "properties": {
+        "shadowEdit.editorTint": {
+          "type": "boolean",
+          "default": true,
+          "description": "Apply a gentle purple background to private Shadow document lines. Diff and resolution editors retain their normal colors."
+        }
+      }
+    },
+    "colors": [
+      {
+        "id": "shadowEdit.background",
+        "description": "Background tint for private Shadow document lines.",
+        "defaults": {
+          "dark": "#A378F014",
+          "light": "#7945E812",
+          "highContrast": "#00000000",
+          "highContrastLight": "#00000000"
+        }
+      },
+      {
+        "id": "shadowEdit.indicator",
+        "description": "Shadow Edit status text and file decoration color.",
+        "defaults": {
+          "dark": "#C5A3FF",
+          "light": "#7040B0",
+          "highContrast": "#E2CFFF",
+          "highContrastLight": "#59218E"
+        }
       }
     ]
   }

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Shadow Edit</title>
+  <desc id="desc">Two offset documents on a dark rounded square. A bright purple private document with a white edit cursor sits in front of a lavender outline of the original.</desc>
+  <defs>
+    <linearGradient id="background" x1="40" y1="32" x2="464" y2="488" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#241939"/>
+      <stop offset="1" stop-color="#100C1B"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="108" y1="146" x2="340" y2="416" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B18AFF"/>
+      <stop offset="1" stop-color="#7945E8"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#background)"/>
+  <!-- The live original: distinct, offset, and visible behind the private copy. -->
+  <rect x="184" y="96" width="220" height="272" rx="28" fill="#302146" stroke="#BCA0EF" stroke-width="8"/>
+  <path d="M360 144h12M360 178h12M360 212h12" fill="none" stroke="#BCA0EF" stroke-width="8" stroke-linecap="round" opacity=".65"/>
+  <!-- The private document. Shapes remain legible at small extension-icon sizes. -->
+  <rect x="108" y="144" width="232" height="272" rx="28" fill="url(#paper)"/>
+  <path d="M146 187h52" fill="none" stroke="#E9DCFF" stroke-width="8" stroke-linecap="round" opacity=".6"/>
+  <path d="m157 244 37 34-37 34" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M231 312h52" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>
+</svg>

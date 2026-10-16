@@ -19,12 +19,12 @@ To produce an installable package:
 npm run package
 ```
 
-In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.5.vsix`. Installation does not shadow any files automatically.
+In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.7.vsix`. Installation does not shadow any files automatically.
 
 ## Use
 
 1. Open a UTF-8 text file. Run **Shadow Edit: Start**, use the pencil in the editor title, or select Start from the tab context menu.
-2. Edit the new private document. The tab has a purple **S** decoration, its URI path includes **Shadow**, and the purple status-bar indicator says **Shadow**. The purple follows your VS Code theme. Normal typing, undo/redo, find/replace, and Cmd+S/Ctrl+S use the native text editor. Saves go to extension storage.
+2. Edit the new private document. A gentle purple tint covers its text lines, its URI path includes **Shadow**, and the status bar says **Shadow · Private edits**. A purple **S** tab decoration also appears when tab decorations are enabled. Normal typing, undo/redo, find/replace, and Cmd+S/Ctrl+S use the native text editor. Saves go to extension storage.
 3. Agents can edit, commit, or switch branches in the real repository. External changes update the status indicator, never your private document.
 4. Use **Review Differences** for a native diff against a fresh disk snapshot. **Review Baseline** shows your changes since the last successful merge. Review snapshots are fixed; reopen Review to refresh.
 5. Run **Merge & Stop** to merge and return to the real file, or **Merge & Continue** to merge and keep editing privately. Clean merges apply immediately without opening a review or resolution editor. Only conflicts open the private resolution document; reviewing differences beforehand is optional.
@@ -32,6 +32,12 @@ In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1
 The status bar opens all session actions. Multiple files can have separate sessions. **Start** always creates a fresh session from the ordinary editor’s current text (including unsaved edits) and captures a new disk baseline. If a saved session already exists, confirm **Start Fresh** to archive the previous draft and replace it, or cancel to leave it untouched. **Resume** explicitly continues the saved private draft with its existing baseline. Starting again while already in that file’s shadow keeps the active session. Fresh sessions use distinct document URIs so VS Code cannot reuse an earlier buffer. Closing a private tab preserves its session; use **Resume** to reopen it.
 
 **Starting with unsaved edits:** these are copied to private storage before opening the shadow. The original dirty tab remains open because the public API cannot silently retarget or discard that buffer. Close the original tab and choose **Don’t Save**. Do not save that original buffer unless you intend to change the real file. Merging is blocked while an ordinary buffer for the target is dirty.
+
+### Appearance
+
+The tint applies only to private Shadow document lines, including in split editors. The empty space below the document keeps the normal editor background. Diff and conflict-resolution editors keep their normal colors. Disable the tint with **Shadow Edit: Editor Tint** in Settings. High-contrast themes default to no tint. Customize `shadowEdit.background` and `shadowEdit.indicator` through `workbench.colorCustomizations`.
+
+If the tab badge is missing, check `workbench.editor.decorations.badges` and `workbench.editor.decorations.colors`. If the status indicator is missing while a Shadow document is focused, make sure the status bar is visible and **Shadow Edit** is checked in its right-click menu. In Remote–SSH, check the installed extension version under **SSH: your host** in the Extensions view, then reload the window after updating.
 
 ### Keyboard shortcuts
 
