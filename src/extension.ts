@@ -303,7 +303,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   register('discard', async arg => {
     const s = await choose(arg); if (!s) return;
     await sync(s);
-    if ((s.mine !== s.base || s.pending) && await vscode.window.showWarningMessage('Discard this private session? A recovery snapshot will remain in extension storage.', { modal: true }, 'Discard') !== 'Discard') return;
+    if (s.mine !== s.base || s.pending) {
+      // Show what would be lost behind the confirmation, so the choice is made with the diff in view.
+      const preview = s.mine !== s.base ? snapshotUri(s.base, 'BASE', s) : undefined;
+      if (preview) await vscode.commands.executeCommand('vscode.diff', preview, uriFor(s), `${path.basename(s.originalPath)}: changes to discard (BASE ↔ Shadow)`, { preview: false });
+      const lost = [s.mine !== s.base && 'the unmerged private changes shown in the diff', s.pending && 'the unapplied conflict resolution'].filter(Boolean).join(' and ');
+      const choice = await vscode.window.showWarningMessage(`Discard ${lost}?`, { modal: true, detail: 'The real file is not changed. A recovery copy stays in extension storage. Cancel returns to your Shadow document.' }, 'Discard & Stop');
+      if (choice !== 'Discard & Stop') {
+        if (preview) await vscode.window.tabGroups.close(vscode.window.tabGroups.all.flatMap(g => g.tabs).filter(t => t.input instanceof vscode.TabInputTextDiff && t.input.original.toString() === preview.toString()));
+        await show(s);
+        return;
+      }
+    }
     await store.archive(s, 'discarded'); await stop(s, true, true);
   });
   register('storage', async () => { await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(store.root), { forceNewWindow: true }); });

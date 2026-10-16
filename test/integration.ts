@@ -133,6 +133,28 @@ export async function run(): Promise<void> {
   assert.deepEqual(groupFiles, [[left], [right]]);
   assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, right); assert.equal(vscode.window.activeTextEditor?.viewColumn, vscode.ViewColumn.Two);
   console.log('PASS: Merge & Stop preserves split editor groups.');
+  // Discard & Stop shows the changes to discard behind its confirmation; Cancel returns to the Shadow document.
+  const discardFile = path.join(root, 'discard.py'); await fs.writeFile(discardFile, 'keep\n');
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(discardFile)); await command('start');
+  const discardShadow = vscode.window.activeTextEditor!.document; await replace(discardShadow, 'throw away\n'); await discardShadow.save();
+  const warn = vscode.window.showWarningMessage;
+  const confirmDiscard = async (choice: string | undefined) => {
+    let diffShown = false;
+    vscode.window.showWarningMessage = ((message: string, ...args: unknown[]) => {
+      assert.match(message, /^Discard the unmerged private changes/); assert.ok(args.includes('Discard & Stop'));
+      diffShown = vscode.window.tabGroups.activeTabGroup.activeTab?.input instanceof vscode.TabInputTextDiff;
+      return Promise.resolve(choice);
+    }) as typeof warn;
+    try { await command('discard', discardShadow.uri); } finally { vscode.window.showWarningMessage = warn; }
+    assert.ok(diffShown, 'The diff of changes to discard must be visible behind the confirmation');
+  };
+  await confirmDiscard(undefined);
+  assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), discardShadow.uri.toString());
+  assert.ok(!vscode.window.tabGroups.all.flatMap(g => g.tabs).some(t => t.input instanceof vscode.TabInputTextDiff), 'Cancel must close the discard preview');
+  await confirmDiscard('Discard & Stop');
+  assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, discardFile); assert.equal(await fs.readFile(discardFile, 'utf8'), 'keep\n');
+  assert.ok(!vscode.window.tabGroups.all.flatMap(g => g.tabs).some(t => t.input instanceof vscode.TabInputTextDiff || (t.input as vscode.TabInputText).uri.scheme === 'shadow-edit'));
+  console.log('PASS: Discard & Stop previews the changes to discard, cancels cleanly, and discards on confirmation.');
   const recovery = path.join(root, 'recovery.py'); await fs.writeFile(recovery, 'first\nmiddle\nlast\n');
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(recovery)); await command('start');
   const privateDoc = vscode.window.activeTextEditor!.document; await replace(privateDoc, 'FIRST\nmiddle\nlast\n'); await privateDoc.save();

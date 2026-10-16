@@ -1,6 +1,6 @@
 {
   "name": "shadow-edit",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Private per-file editing with three-way merges against the live working directory.",
   "main": "./dist/extension.js",
   "scripts": {

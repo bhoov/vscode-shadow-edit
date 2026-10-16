@@ -19,7 +19,7 @@ To produce an installable package:
 npm run package
 ```
 
-In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.8.vsix`. Installation does not shadow any files automatically.
+In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.9.vsix`. Installation does not shadow any files automatically.
 
 ## Use
 
@@ -65,7 +65,7 @@ Edit that document into the complete desired result, remove the marker lines, an
 
 - **Merge & Stop:** publish a clean result and reopen the ordinary file.
 - **Merge & Continue:** publish, update the baseline, and keep a private document.
-- **Discard & Stop:** confirm before discarding unmerged work, keep a recovery archive, and reopen the ordinary file.
+- **Discard & Stop:** if unmerged work would be lost, open a BASE ↔ Shadow diff of those changes and ask for confirmation. Choose **Discard & Stop** in the dialog to continue, or **Cancel** to close the diff and return to the Shadow document. A recovery archive is kept, and the ordinary file reopens.
 - **Suspend:** save private state and return to the real file; later use Resume.
 
 Saved state survives restarts and extension-host crashes. Changes are also checkpointed on every document edit; a crash can still lose the last edits whose asynchronous checkpoint has not completed. Use Save to wait for persistence. VS Code's own dirty-editor recovery is an additional safeguard.
