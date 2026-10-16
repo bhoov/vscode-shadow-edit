@@ -1,6 +1,6 @@
 {
   "name": "shadow-edit",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Private per-file editing with three-way merges against the live working directory.",
   "main": "./dist/extension.js",
   "scripts": {
@@ -166,32 +166,32 @@
     "keybindings": [
       {
         "command": "shadowEdit.start",
-        "key": "ctrl+k shift+s",
-        "mac": "cmd+k shift+s",
+        "key": "ctrl+m shift+s",
+        "mac": "cmd+m shift+s",
         "when": "editorTextFocus && !editorReadonly && (resourceScheme == file || resourceScheme == vscode-remote)"
       },
       {
         "command": "shadowEdit.resume",
-        "key": "ctrl+k shift+r",
-        "mac": "cmd+k shift+r",
+        "key": "ctrl+m shift+r",
+        "mac": "cmd+m shift+r",
         "when": "editorTextFocus && !editorReadonly && (resourceScheme == file || resourceScheme == vscode-remote)"
       },
       {
         "command": "shadowEdit.mergeStop",
-        "key": "ctrl+k shift+m",
-        "mac": "cmd+k shift+m",
+        "key": "ctrl+m shift+m",
+        "mac": "cmd+m shift+m",
         "when": "editorTextFocus && !editorReadonly && resourceScheme == shadow-edit && resourcePath =~ /^\\/Shadow\\//"
       },
       {
         "command": "shadowEdit.review",
-        "key": "ctrl+k shift+d",
-        "mac": "cmd+k shift+d",
+        "key": "ctrl+m shift+d",
+        "mac": "cmd+m shift+d",
         "when": "editorTextFocus && !editorReadonly && resourceScheme == shadow-edit && resourcePath =~ /^\\/Shadow\\//"
       },
       {
         "command": "shadowEdit.mergeContinue",
-        "key": "ctrl+k shift+c",
-        "mac": "cmd+k shift+c",
+        "key": "ctrl+m shift+c",
+        "mac": "cmd+m shift+c",
         "when": "editorTextFocus && !editorReadonly && resourceScheme == shadow-edit && resourcePath =~ /^\\/Shadow\\//"
       }
     ],

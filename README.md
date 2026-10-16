@@ -19,7 +19,7 @@ To produce an installable package:
 npm run package
 ```
 
-In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.9.vsix`. Installation does not shadow any files automatically.
+In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.10.vsix`. Installation does not shadow any files automatically.
 
 ## Use
 
@@ -41,15 +41,15 @@ If the tab badge is missing, check `workbench.editor.decorations.badges` and `wo
 
 ### Keyboard shortcuts
 
-Press **Cmd+K** on macOS or **Ctrl+K** on Windows/Linux, release it, then press **Shift + the letter**. With Remote–SSH, use the shortcuts for your local VS Code client’s operating system.
+Press **Cmd+M** on macOS or **Ctrl+M** on Windows/Linux, release it, then press **Shift + the letter**. With Remote–SSH, use the shortcuts for your local VS Code client’s operating system. Each Cmd+M/Ctrl+M chord applies only where its action is available. In other editors, Cmd+M still minimizes the window on macOS, and Ctrl+M still toggles Tab-key focus mode on Windows/Linux. In Shadow and ordinary file editors, the chord takes precedence.
 
 | Action | macOS | Windows/Linux |
 | --- | --- | --- |
-| Start | Cmd+K, Shift+S | Ctrl+K, Shift+S |
-| Resume | Cmd+K, Shift+R | Ctrl+K, Shift+R |
-| Merge & Stop | Cmd+K, Shift+M | Ctrl+K, Shift+M |
-| Review Differences | Cmd+K, Shift+D | Ctrl+K, Shift+D |
-| Merge & Continue | Cmd+K, Shift+C | Ctrl+K, Shift+C |
+| Start | Cmd+M, Shift+S | Ctrl+M, Shift+S |
+| Resume | Cmd+M, Shift+R | Ctrl+M, Shift+R |
+| Merge & Stop | Cmd+M, Shift+M | Ctrl+M, Shift+M |
+| Review Differences | Cmd+M, Shift+D | Ctrl+M, Shift+D |
+| Merge & Continue | Cmd+M, Shift+C | Ctrl+M, Shift+C |
 
 Start and Resume are active in ordinary editable file editors, including remote files. Merge and Review shortcuts are active only in private Shadow editors. They do not apply in terminals, read-only views, or resolution documents. Save keeps its usual shortcut and saves privately; Apply Resolution and Discard have no default shortcuts. Customize these bindings in VS Code’s Keyboard Shortcuts editor by searching for “Shadow Edit”.
 
