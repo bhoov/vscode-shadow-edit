@@ -155,6 +155,26 @@ export async function run(): Promise<void> {
   assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, discardFile); assert.equal(await fs.readFile(discardFile, 'utf8'), 'keep\n');
   assert.ok(!vscode.window.tabGroups.all.flatMap(g => g.tabs).some(t => t.input instanceof vscode.TabInputTextDiff || (t.input as vscode.TabInputText).uri.scheme === 'shadow-edit'));
   console.log('PASS: Discard & Stop previews the changes to discard, cancels cleanly, and discards on confirmation.');
+  // A new Shadow command closes the previous Shadow notice, so an old error cannot sit beside a newer result.
+  const withProgress = vscode.window.withProgress;
+  const notices: { message: string; open: boolean }[] = [];
+  vscode.window.withProgress = ((options: vscode.ProgressOptions, task: (p: vscode.Progress<{ message?: string }>) => Thenable<unknown>) => {
+    const notice = { message: '', open: true }; notices.push(notice);
+    return Promise.resolve(task({ report: v => { notice.message = v.message ?? notice.message; } })).finally(() => { notice.open = false; });
+  }) as unknown as typeof withProgress;
+  try {
+    const noticeFile = path.join(root, 'notice.py'); await fs.writeFile(noticeFile, 'n\n');
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(noticeFile)); await command('start');
+    const noticeShadow = vscode.window.activeTextEditor!.document;
+    await command('applyResolution', noticeShadow.uri);
+    assert.equal(notices.length, 1); assert.match(notices[0].message, /^Error: Run Merge & Stop/); assert.ok(notices[0].open);
+    await replace(noticeShadow, 'N\n'); await noticeShadow.save();
+    await command('mergeStop', noticeShadow.uri);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.ok(!notices[0].open, 'The next command must close the outdated error');
+    assert.equal(notices.filter(n => n.open).map(n => n.message).join(), 'Shadow edits merged into the working directory.');
+  } finally { vscode.window.withProgress = withProgress; }
+  console.log('PASS: A new Shadow command closes the previous Shadow notice.');
   const recovery = path.join(root, 'recovery.py'); await fs.writeFile(recovery, 'first\nmiddle\nlast\n');
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(recovery)); await command('start');
   const privateDoc = vscode.window.activeTextEditor!.document; await replace(privateDoc, 'FIRST\nmiddle\nlast\n'); await privateDoc.save();

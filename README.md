@@ -19,7 +19,7 @@ To produce an installable package:
 npm run package
 ```
 
-In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.11.vsix`. Installation does not shadow any files automatically.
+In VS Code, run **Extensions: Install from VSIX…** and select `shadow-edit-0.1.12.vsix`. Installation does not shadow any files automatically.
 
 ### Marketplace
 
@@ -32,6 +32,8 @@ Manage the published extension (publisher `bhoov`) at https://marketplace.visual
 3. Agents can edit, commit, or switch branches in the real repository. External changes update the status indicator, never your private document.
 4. Use **Review Differences** for a native diff against a fresh disk snapshot. **Review Baseline** shows your changes since the last successful merge. Review snapshots are fixed; reopen Review to refresh.
 5. Run **Merge & Stop** to merge and return to the real file, or **Merge & Continue** to merge and keep editing privately. Clean merges apply immediately without opening a review or resolution editor. Only conflicts open the private resolution document; reviewing differences beforehand is optional.
+
+Shadow Edit shows one notice at a time in the bottom-right corner. A new notice or a new Shadow Edit command closes the previous notice, so the visible notice always applies to the most recent command. These notices show a full, static progress bar, because VS Code can close only progress notifications. Recovery-write failures and the startup **Resume** prompt use ordinary notifications and stay until you close them.
 
 The status bar opens all session actions. Multiple files can have separate sessions. **Start** always creates a fresh session from the ordinary editor’s current text (including unsaved edits) and captures a new disk baseline. If a saved session already exists, confirm **Start Fresh** to archive the previous draft and replace it, or cancel to leave it untouched. **Resume** explicitly continues the saved private draft with its existing baseline. Starting again while already in that file’s shadow keeps the active session. Fresh sessions use distinct document URIs so VS Code cannot reuse an earlier buffer. Closing a private tab preserves its session; use **Resume** to reopen it.
 

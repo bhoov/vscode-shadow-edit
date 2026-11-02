@@ -104,6 +104,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     status.text = `$(edit) ${provider.isResult(doc!.uri) ? 'Shadow Resolution · Private' : 'Shadow · Private edits'}${external.get(s.id) ?? ''}`;
     status.tooltip = 'Private saves • Review, merge, suspend, or discard'; status.show();
   };
+  // VS Code cannot close an ordinary notification, but it closes a progress
+  // notification when its task resolves. Shadow notices use one, so each new
+  // notice and each new command removes the previous, possibly outdated, notice.
+  let closeNotice: (() => void) | undefined;
+  const notify = (message: string, ms = 15_000) => {
+    closeNotice?.();
+    let close!: () => void;
+    const done = new Promise<void>(resolve => { close = resolve; });
+    const timer = setTimeout(() => close(), ms);
+    const current = () => { clearTimeout(timer); close(); if (closeNotice === current) closeNotice = undefined; };
+    closeNotice = current;
+    // A completed increment shows a static bar instead of an animated one.
+    void vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Shadow Edit' }, progress => { progress.report({ increment: 100, message }); return done; });
+  };
+  const notifyError = (message: string) => notify('Error: ' + message, 120_000);
   const observe = (s: Session) => {
     const check = async () => {
       try { external.set(s.id, (await readReal(s.originalPath)).content === s.base ? '' : ' $(sync) External changes'); }
@@ -182,7 +197,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (remove && (discard || s.mine === s.base)) {
       await store.archive(s, 'stopped');
       await store.remove(s); sessions.delete(s.id); watchers.get(s.id)?.dispose();
-    } else if (remove) void vscode.window.showInformationMessage('New private edits arrived while stopping. The session is suspended and can be resumed.');
+    } else if (remove) notify('New private edits arrived while stopping. The session is suspended and can be resumed.');
     if (!replaced) await vscode.window.showTextDocument(original, { preview: false });
     updateStatus();
   };
@@ -219,7 +234,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     external.set(s.id, ''); updateStatus();
     if (p.stop && s.mine === s.base) await stop(s, true);
     else await show(s);
-    void vscode.window.showInformationMessage('Shadow edits merged into the working directory.');
+    notify('Shadow edits merged into the working directory.');
   };
   const closeResolution = async (s: Session) => {
     const draft = await vscode.workspace.openTextDocument(uriFor(s));
@@ -241,16 +256,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await store.save(s);
     if (computed.conflicts) {
       await show(s, true);
-      void vscode.window.showInformationMessage('Resolve MINE / BASE / THEIRS markers here, then run Shadow Edit: Apply Resolution. Saves remain private.');
+      notify('Resolve MINE / BASE / THEIRS markers here, then run Shadow Edit: Apply Resolution. Saves remain private.', 60_000);
     } else await apply(s);
   };
 
   const register = (id: string, action: (arg?: vscode.Uri) => Promise<unknown>) => context.subscriptions.push(vscode.commands.registerCommand('shadowEdit.' + id, async (arg?: vscode.Uri) => {
     const key = arg?.toString() ?? vscode.window.activeTextEditor?.document.uri.toString() ?? 'picker';
     // Commands are globally serialized; typing and recovery writes remain enabled.
-    if (busy.size) { void vscode.window.showInformationMessage('A Shadow Edit operation is already running.'); return; }
+    if (busy.size) { notify('Another Shadow Edit operation is still running. Try again when it completes.', 5_000); return; }
     busy.add(key);
-    try { return await action(arg); } catch (e) { console.error('Shadow Edit:', e); void vscode.window.showErrorMessage('Shadow Edit: ' + errorText(e)); } finally { busy.delete(key); }
+    closeNotice?.();
+    try { return await action(arg); } catch (e) { console.error('Shadow Edit:', e); notifyError(errorText(e)); } finally { busy.delete(key); }
   }));
   const start = async (arg?: vscode.Uri) => {
     const uri = arg ?? vscode.window.activeTextEditor?.document.uri;
@@ -279,7 +295,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     catch (error) { if (existing) sessions.set(existing.id, existing); else sessions.delete(s.id); throw error; }
     watchers.get(s.id)?.dispose(); observe(s);
     const editor = await show(s);
-    if (doc.isDirty) void vscode.window.showWarningMessage('Unsaved edits were copied safely into Shadow. The original dirty tab is still open: close it and choose Don’t Save to prevent ordinary saves.');
+    if (doc.isDirty) notify('Warning: Unsaved edits were copied safely into Shadow. The original dirty tab is still open: close it and choose Don’t Save to prevent ordinary saves.', 60_000);
     else await replaceTabs(isUri(uri), editor.document);
     return s.id;
   };
